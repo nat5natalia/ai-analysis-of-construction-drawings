@@ -8,12 +8,14 @@ def build_instructor_input(state):
         last_message = messages[-1].content
 
     return f"""
-OCR:
-{ocr}
+    Страница: {state.get("page")}
 
-Контекст (RAG):
-{context}
+    OCR:
+    {state.get("ocr_text", "")}
 
-Анализ агента:
-{last_message}
-"""
+    Контекст:
+    {state.get("context", "")}
+
+    Анализ агента:
+    {state["messages"][-1].content if state["messages"] else ""}
+    """

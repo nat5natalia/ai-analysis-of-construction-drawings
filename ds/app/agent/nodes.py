@@ -1,19 +1,18 @@
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import SystemMessage
 
 from app.prompts.agent import SYSTEM_AGENT
-from app.instructor.extractor import run_instructor
-from app.instructor.schemas import DrawingAnalysis
+
 
 def node_agent(state, agent):
-    """
-    Основной вызов LLM
-    """
 
     messages = state["messages"]
 
-    # если первый вызов — добавляем system prompt
     if not messages:
-        messages = [SystemMessage(content=SYSTEM_AGENT)]
+        messages = [
+            SystemMessage(
+                content=f"{SYSTEM_AGENT}\n\nТы работаешь со страницей: {state['page']}"
+            )
+        ]
 
     response = agent.invoke(messages)
 
@@ -21,7 +20,6 @@ def node_agent(state, agent):
         **state,
         "messages": messages + [response]
     }
-
 
 def node_tools(state, tools):
     """

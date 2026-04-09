@@ -16,5 +16,7 @@ class AgentState(TypedDict):
     # RAG
     context: str
 
+    page: int
+
     # финальный результат
     final_output: Optional[dict]

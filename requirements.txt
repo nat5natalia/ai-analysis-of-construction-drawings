@@ -1,0 +1,31 @@
+# backend
+
+fastapi==0.135.1
+uvicorn==0.41.0
+motor==3.7.1
+pymongo==4.16.0
+faiss-cpu==1.13.2
+python-multipart==0.0.22
+PyMuPDF==1.27.2
+httpx==0.28.1
+pytest==9.0.3
+sentence-transformers
+
+# drawing_agent
+
+langchain
+langchain-core
+langchain-openai
+langgraph
+openai
+Pillow
+opencv-python
+easyocr
+numpy
+omegaconf
+python-dotenv
+clearml
+typing-extensions
+pydantic
+torch
+torchvision

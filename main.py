@@ -26,12 +26,8 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://nonorally-determinable-arden.ngrok-free.dev",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,   # или удалить эту строку
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -40,17 +36,13 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
-# ---------------------------------------------------------------------------
-# 📦 Модели данных
-# ---------------------------------------------------------------------------
+
  
 class AskRequest(BaseModel):
     question: str
 
 
-# ---------------------------------------------------------------------------
-# 🔧 Фоновая обработка чертежа
-# ---------------------------------------------------------------------------
+
 
 async def process_drawing(drawing_id: str):
     """
@@ -78,9 +70,7 @@ async def process_drawing(drawing_id: str):
     print(f"Чертёж {drawing_id} обработан.")
 
 
-# ---------------------------------------------------------------------------
-# 🚀 ЭНДПОИНТЫ
-# ---------------------------------------------------------------------------
+
 
 # --- 1. Загрузка чертежа ---------------------------------------------------
 
@@ -181,16 +171,16 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
         raise HTTPException(status_code=400, detail="Поисковый запрос не может быть пустым.")
  
     query_embedding = compute_embedding(q)
-    # Ищем в векторной БД
-    results = vector_db.search(query_embedding, k=limit + offset)
- 
-    # Получаем метаданные из MongoDB для найденных id
-    drawings_info = []
-    for drawing_id, score in results[offset:offset+limit]:
+    # Ищем все подходящие элементы (максимум 1000, можно увеличить)
+    all_results = vector_db.search(query_embedding, k=1000)
+    
+    # Получаем метаданные для текущей страницы
+    page_results = []
+    for drawing_id, score in all_results[offset:offset+limit]:
         meta = await get_drawing(drawing_id)
         if meta:
             desc = meta.get("description") or ""
-            drawings_info.append({
+            page_results.append({
                 "id": drawing_id,
                 "filename": meta["filename"],
                 "description": desc[:200] + "..." if len(desc) > 200 else desc,
@@ -198,8 +188,8 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
             })
  
     return {
-        "total": len(results),
-        "results": drawings_info,
+        "total": len(all_results),  # общее число подходящих чертежей
+        "results": page_results,
     }
  
  
@@ -306,19 +296,11 @@ async def delete_drawing_by_id(drawing_id: str):
     from db import drawings
     await drawings.delete_one({"id": drawing_id})
 
-    # Удаляем из векторной БД (пока просто перестраиваем индекс)
-    # Для простоты удалим из векторной БД (пересоздаём индекс)
-    # Здесь можно реализовать более эффективное удаление, но для начала перестроим
-    # vector_db.delete(drawing_id) - пока не реализовано, просто проигнорируем.
-    # В реальном проекте нужно либо хранить эмбеддинги в MongoDB и пересобирать индекс,
-    # либо использовать более продвинутую векторную БД с поддержкой удаления.
+
 
     return {"message": "Чертёж удалён"}
 
 
-# ---------------------------------------------------------------------------
-# ▶️  Запуск через python main.py
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -11,10 +11,14 @@ class AgentState(TypedDict):
     page: int  
     ocr_text: str 
     context: str 
+    tool_results: Dict[str,List[str]]
     extracted_holes: List[Dict]
     extracted_dimensions: Dict
     extracted_objects: List[Dict]
+    text_dimensions: List[str]
     analysis_complete: bool
+    yolo_detection: Dict[str, int] 
+    yolo_dimension_lines: str  
     wait_time: int
     max_retries: int
     final_output: Optional[Dict[str,Any]]

@@ -144,6 +144,10 @@ def tools_node(state: AgentState) -> AgentState:
                 state["extracted_objects"] = _parse_objects_result(result)
             elif tool_name == "get_drawing_metadata":
                 state["metadata_retrieved"] = True
+            elif tool_name == "detect_yolo_objects":
+                state["yolo_detection"] = _parse_yolo_result(result)
+            elif tool_name == "find_dimension_lines":
+                state["yolo_dimension_lines"] = result
         except Exception as e:
             error_msg = f"Ошибка при вызове {tool_name}: {str(e)}"
             tool_results.append(
@@ -240,6 +244,29 @@ def _parse_objects_result(result: str) -> List[str]:
                 objects.append(keyword)
     
     return objects
+
+def _parse_yolo_result(result: str) -> Dict:
+    import re
+    parsed = {
+        "dimension_lines": 0,
+        "tables": 0,
+        "text_blocks": 0,
+        "symbols": 0,
+        "raw": result
+    }
+    lines_match = re.search(r'Размерные линии: (\d+)', result)
+    if lines_match:
+        parsed["dimension_lines"] = int(lines_match.group(1))
+    tables_match = re.search(r'Таблицы: (\d+)', result)
+    if tables_match:
+        parsed["tables"] = int(tables_match.group(1))
+    text_match = re.search(r'Текстовые блоки: (\d+)', result)
+    if text_match:
+        parsed["text_blocks"] = int(text_match.group(1))
+    symbols_match = re.search(r'Символы: (\d+)', result)
+    if symbols_match:
+        parsed["symbols"] = int(symbols_match.group(1))
+    return parsed
 
 def get_tool_results_summary(state: AgentState) -> str:
     summary = []

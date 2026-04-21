@@ -7,6 +7,7 @@ from PIL import Image
 from langchain_core.tools import tool
 import easyocr
 import logging 
+from app.yolo import get_yolo 
 logger = logging.getLogger(__name__)
 _current_drawing = None
 _ocr_reader = None
@@ -25,6 +26,39 @@ def set_current_drawing(drawing_base64: str):
 def get_current_drawing() -> str:
     global _current_drawing
     return _current_drawing
+
+@tool
+def detect_yolo_objects() -> str:
+    """Детекция"""
+    image_base64 = get_current_drawing()
+    yolo = get_yolo()
+    result = yolo.detect_drawing_elements(image_base64)
+    output = f"""
+    === YOLO ДЕТЕКЦИЯ ===
+    Размерные линии: {len(result['dimension_lines'])}
+    Таблицы: {len(result['tables'])}
+    Текстовые блоки: {len(result['text_blocks'])}
+    Символы: {len(result['symbols'])}
+    """ 
+    return output
+
+@tool
+def find_dimension_lines()->str:
+    """Линии"""
+    image_base64 = get_current_drawing()
+    yolo = get_yolo()
+    result = yolo.detect_drawing_elements(image_base64)
+    if not result['dimension_lines']:
+        return "Размерные линии не найдены"
+    
+    lines_info = []
+    for i, line in enumerate(result['dimension_lines'][:5]):
+        lines_info.append(
+            f"Линия {i+1}: центр ({line['center'][0]:.0f}, {line['center'][1]:.0f}), "
+            f"уверенность {line['confidence']:.2f}"
+        )
+    
+    return f"Найдено размерных линий: {len(result['dimension_lines'])}\n" + "\n".join(lines_info)
 
 @tool
 def extract_text(image_base64: str = None) -> str:
@@ -239,7 +273,6 @@ def detect_objects(text: str) -> str:
         return "Объекты не обнаружены"
     
     return f"Обнаруженные объекты: {', '.join(objects)}"
-
 @tool
 def get_drawing_metadata() -> str:
     """Возвращает метаданные чертежа"""
@@ -254,4 +287,10 @@ ALL_TOOLS = [
     extract_dims,
     detect_objects,
     get_drawing_metadata,
+    detect_yolo_objects,  
+    find_dimension_lines, 
 ]
+
+print(f" Зарегистрировано инструментов: {len(ALL_TOOLS)}")
+for t in ALL_TOOLS:
+    print(f"   - {t.name}: {t.description[:50]}")

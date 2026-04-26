@@ -1,33 +1,31 @@
-"""
-Модуль для взаимодействия с моделями Data Science.
-Здесь должны быть реальные вызовы моделей (OpenAI, локальные и т.д.).
-Пока оставлены заглушки.
-"""
+import asyncio
+from typing import Optional
 
-from pdf import file_to_images_base64
-import os
+# Глобальный агент или модель – инициализируем один раз
+_agent = None
 
-def generate_description(file_path: str) -> str:
-    """
-    Генерирует описание чертежа с помощью мультимодальной LLM.
-    """
-    # Пример: преобразовать файл в base64 и отправить в GPT-4o
-    images_base64 = file_to_images_base64(file_path)
-    # TODO: реализовать вызов модели
-    # ...
-    return f"[DS] Описание чертежа {os.path.basename(file_path)}."
+async def get_agent():
+    """Ленивая инициализация агента (если он асинхронный)."""
+    global _agent
+    if _agent is None:
+        _agent = await asyncio.to_thread(get_agent())
+    return _agent
 
-def answer_question(file_path: str, question: str) -> str:
+async def generate_description(image_path: str, metadata: Optional[str] = None) -> str:
     """
-    Отвечает на вопрос по чертежу (RAG).
+    Генерация описания чертежа.
+    Предполагается, что сама модель синхронная (например, transformers).
     """
-    # TODO: реализовать RAG
-    return f"[DS] Ответ на вопрос '{question}'."
+    agent = await get_agent()
+    # Запускаем синхронную функцию в отдельном потоке, чтобы не блокировать event loop
+    description = await asyncio.to_thread(
+        agent.generate_description_sync, image_path, metadata
+    )
+    return description
 
-def compute_embedding(text: str) -> list[float]:
-    """
-    Вычисляет эмбеддинг текста.
-    """
-    # Пример: использовать sentence-transformers или OpenAI
-    # TODO: реализовать эмбеддинг
-    return [0.0] * 384  # фиктивный вектор
+async def answer_question(question: str, context: Optional[str] = None) -> str:
+    agent = await get_agent()
+    answer = await asyncio.to_thread(
+        agent.answer_question_sync, question, context
+    )
+    return answer

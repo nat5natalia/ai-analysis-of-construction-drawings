@@ -1,66 +1,59 @@
 import json
 import hashlib
-import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple
-import numpy as np
+from typing import Dict, Any
 from datetime import datetime
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
-from rag.embeddings import EmbeddingGenerator
-from rag.vectors import VectorStore
-from app.data.loader import load_drawing
-from app.data.preprocess import preprocess_image
+# Используйте ту же модель, что в db.py
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
 class DrawingKnowledgeManager:
-    def __init__(self, cache_dir: str = "cache/drawings"):
+    def __init__(self, vector_db, cache_dir: str = "cache/drawings"):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.embedder = EmbeddingGenerator()
-        self._indices: Dict[str, VectorStore] = {}
-        self._static_cache: Dict[str, Dict] = {}
+        self.vector_db = vector_db   # <-- готовый экземпляр VectorDB
+        self.embed_model = SentenceTransformer(EMBEDDING_MODEL)
 
     def _get_drawing_hash(self, path: str, page: int) -> str:
-        raw = f"{path}:{page}"
-        return hashlib.md5(raw.encode()).hexdigest()
+        return hashlib.md5(f"{path}:{page}".encode()).hexdigest()
 
-    def _get_index_paths(self, hash_id: str):
-        base = self.cache_dir / hash_id
-        return str(base) + "_index.bin", str(base) + "_metadata.pkl"
+    def _int_id(self, hash_id: str) -> int:
+        h = hashlib.md5(hash_id.encode()).hexdigest()
+        return np.int64(int(h[:16], 16) & 0x7FFFFFFFFFFFFFFF)
 
     def _get_static_cache_path(self, hash_id: str):
         return self.cache_dir / f"{hash_id}_static.json"
 
     def load_drawing_and_cache(self, path: str, page: int = 0) -> Dict[str, Any]:
         hash_id = self._get_drawing_hash(path, page)
-
-        # 1. Проверка статического кеша
         static_cache_path = self._get_static_cache_path(hash_id)
+
         if static_cache_path.exists():
             with open(static_cache_path, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-            # Загружаем изображение для текущего использования (лёгкая операция)
+            # Обратите внимание: load_drawing и preprocess_image импортируются локально,
+            # чтобы избежать циклических зависимостей
+            from app.data.loader import load_drawing
             images = load_drawing(path)
             image = images[page]
-            processed = {"image_base64": cached["image_base64"],
-                         "ocr_text": cached["ocr_text"],
-                         "width": image.width, "height": image.height}
-            return processed
+            return {"image_base64": cached["image_base64"],
+                    "ocr_text": cached["ocr_text"],
+                    "width": image.width, "height": image.height}
 
-        # 2. Полная обработка
+        from app.data.loader import load_drawing
+        from app.data.preprocess import preprocess_image
+
         images = load_drawing(path)
         if page >= len(images):
             page = 0
         image = images[page]
         processed = preprocess_image(image)
 
-        # Сохраняем статический кеш
         cache_data = {
             "image_base64": processed["image_base64"],
             "ocr_text": processed.get("ocr_text", ""),
-            "extracted_holes": [],    # эти данные можно заполнять при более глубоком анализе
-            "extracted_dimensions": {},
-            "extracted_tables": [],
-            "extracted_objects": [],
             "timestamp": datetime.now().isoformat()
         }
         with open(static_cache_path, "w", encoding="utf-8") as f:
@@ -70,49 +63,34 @@ class DrawingKnowledgeManager:
                 "ocr_text": cache_data["ocr_text"],
                 "width": image.width, "height": image.height}
 
-    def get_or_create_index(self, path: str, page: int) -> VectorStore:
-        hash_id = self._get_drawing_hash(path, page)
-        if hash_id in self._indices:
-            return self._indices[hash_id]
-
-        index_path, meta_path = self._get_index_paths(hash_id)
-        store = VectorStore(index_path=index_path, metadata_path=meta_path)
-        self._indices[hash_id] = store
-        return store
-
     def initialize_static_knowledge(self, path: str, page: int, static_data: Dict[str, Any]):
-        """Добавляет статическую информацию в индекс, если он пуст."""
-        store = self.get_or_create_index(path, page)
-        if store.index.ntotal == 0:
-            # Формируем текстовые фрагменты из статических данных
-            fragments = []
-            if static_data.get("ocr_text"):
-                fragments.append(f"Распознанный текст чертежа: {static_data['ocr_text']}")
-            # Можно добавить размеры, объекты и т.д.
-            for frag in fragments:
-                emb = self.embedder.generate(frag)
-                store.add(frag, emb.tolist())  # метод add ожидает текст и embedding
+        hash_id = self._get_drawing_hash(path, page)
+        num_id = self._int_id(hash_id)
+        ocr_text = static_data.get("ocr_text", "")
+        if not ocr_text:
+            return
+        fragment = f"Распознанный текст чертежа: {ocr_text}"
+        vec = self.embed_model.encode(fragment, convert_to_numpy=True).astype('float32').reshape(1, -1)
+        self.vector_db.add(vec, [num_id], [{"type": "static", "text": fragment, "drawing_hash": hash_id}])
 
     def add_interaction_to_index(self, path: str, page: int, question: str, answer: str):
-        """Сохраняет вопрос и ответ в индекс чертежа."""
-        store = self.get_or_create_index(path, page)
-        combined = f"Вопрос: {question}\nОтвет: {answer}"
-        emb = self.embedder.generate(combined)
-        store.add(combined, emb.tolist())
-        # Дополнительно пишем в сессионный лог
         hash_id = self._get_drawing_hash(path, page)
+        num_id = self._int_id(hash_id)
+        combined = f"Вопрос: {question}\nОтвет: {answer}"
+        vec = self.embed_model.encode(combined, convert_to_numpy=True).astype('float32').reshape(1, -1)
+        self.vector_db.add(vec, [num_id], [{"type": "qa", "text": combined, "drawing_hash": hash_id}])
+
         log_path = self.cache_dir / f"{hash_id}_sessions.jsonl"
         with open(log_path, "a", encoding="utf-8") as f:
-            record = {"timestamp": datetime.now().isoformat(), "question": question, "answer": answer}
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            json.dump({"timestamp": datetime.now().isoformat(),
+                       "question": question, "answer": answer}, f, ensure_ascii=False)
+            f.write("\n")
 
     def retrieve_context(self, path: str, page: int, query: str, top_k: int = 4) -> str:
-        """Извлекает релевантные фрагменты из истории и статики."""
-        store = self.get_or_create_index(path, page)
-        if store.index.ntotal == 0:
-            return ""
-        query_emb = self.embedder.generate(query)
-        results = store.search(query_emb.tolist(), top_k)
-        if not results:
-            return ""
-        return "\n\n".join([doc for doc, _ in results])
+        hash_id = self._get_drawing_hash(path, page)
+        query_vec = self.embed_model.encode(query, convert_to_numpy=True).astype('float32').reshape(1, -1)
+        results = self.vector_db.search(query_vec, k=top_k)
+        # Фильтруем по drawing_hash
+        relevant = [r['metadata']['text'] for r in results
+                    if r.get('metadata', {}).get('drawing_hash') == hash_id]
+        return "\n\n".join(relevant)

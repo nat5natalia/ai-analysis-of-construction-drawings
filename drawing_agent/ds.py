@@ -3,7 +3,7 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import List, Dict, Any
-
+from sentence_transformers import SentenceTransformer
 AGENT_PATH = Path(__file__).parent.parent / "agent"
 sys.path.insert(0, str(AGENT_PATH))
 
@@ -62,12 +62,10 @@ async def answer_question_async(image_base64: str, question: str) -> str:
         return f"Ошибка: {str(e)}"
 
 def compute_embedding(text: str) -> List[float]:
-    from sentence_transformers import SentenceTransformer
     if not hasattr(compute_embedding, "_model"):
-        compute_embedding._model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        compute_embedding._model = SentenceTransformer('all-MiniLM-L6-v2')
     embedding = compute_embedding._model.encode(text)
     return embedding.tolist()
-
 
 def generate_description(image_base64: str) -> str:
     loop = asyncio.new_event_loop()

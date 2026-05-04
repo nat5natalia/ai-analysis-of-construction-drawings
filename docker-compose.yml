@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  drawing-agent:
+    build: ./drawing_agent
+    ports:
+      - "8001:8000"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  celery-worker:
+    build: ./celery_worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGO_URL=mongodb://mongodb:27017
+      - AGENT_URL=http://drawing-agent:8000/process
+    depends_on:
+      - redis
+      - mongodb
+      - drawing-agent
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGO_URL=mongodb://mongodb:27017
+    depends_on:
+      - redis
+      - mongodb
+      - celery-worker
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

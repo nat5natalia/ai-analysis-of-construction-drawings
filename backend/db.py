@@ -23,8 +23,6 @@ class MongoDB:
     def collection(self):
         """Безопасный доступ к коллекции"""
         if self._collection is None:
-            # Если мы обратились к коллекции до вызова connect(),
-            # это сигнализирует о проблеме в жизненном цикле приложения
             raise RuntimeError("Database not connected. Call 'await db_manager.connect()' first.")
         return self._collection
 
@@ -33,24 +31,28 @@ db_manager = MongoDB()
 
 async def save_drawing(drawing: dict):
     """Сохранение чертежа"""
-    await db_manager.connect()  # Гарантируем наличие подключения
+    await db_manager.connect()
     result = await db_manager.collection.insert_one(drawing)
     return str(result.inserted_id)
 
 async def get_drawing(drawing_id: str):
     """Получение чертежа по ID"""
     await db_manager.connect()
-    # Пытаемся искать и по строковому id, и по ObjectId (на всякий случай)
     try:
         query = {"id": drawing_id}
         result = await db_manager.collection.find_one(query, {"_id": 0})
         if not result:
-            # Если в базе хранятся стандартные Mongo ObjectId
             result = await db_manager.collection.find_one({"_id": ObjectId(drawing_id)})
         return result
     except Exception:
         return await db_manager.collection.find_one({"id": drawing_id}, {"_id": 0})
 
-# Для обратной совместимости, если где-то в коде осталось обращение к 'drawings'
-# Но лучше везде использовать db_manager.collection
+async def delete_drawing(drawing_id: str):
+    """Удаление чертежа из БД"""
+    await db_manager.connect()
+    # Удаляем по кастомному полю id (UUID)
+    result = await db_manager.collection.delete_one({"id": drawing_id})
+    return result.deleted_count > 0
+
+# Для обратной совместимости
 drawings = db_manager

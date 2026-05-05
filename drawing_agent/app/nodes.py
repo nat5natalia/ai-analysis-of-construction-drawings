@@ -180,18 +180,25 @@ def instructor_node(state: AgentState, cfg: DictConfig) -> AgentState:
     
     return state
 
+
 def should_continue(state: AgentState, cfg: DictConfig):
     messages = state["messages"]
-    use_instructor = cfg.run.get('use_instructor', True) if cfg and hasattr(cfg, 'run') else True
     if not messages:
         return "__end__"
+
     last_message = messages[-1]
+
+    # Если модель хочет вызвать инструменты — идем в tools
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         return "tools"
-    if use_instructor:
-      if state.get("analysis_complete"):
+
+    # Если инструментов нет, проверяем флаг инструктора
+    use_instructor = cfg.run.get('use_instructor', True) if cfg and hasattr(cfg, 'run') else True
+
+    # Важно: идем в инструктор только если анализ завершен и нет вызовов инструментов
+    if use_instructor and state.get("analysis_complete"):
         return "instructor"
-    
+
     return "__end__"
 
 def _parse_holes_result(result: str) -> List[Dict]:

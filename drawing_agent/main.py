@@ -1,58 +1,53 @@
 import asyncio
 import hydra
 from omegaconf import DictConfig
-from dotenv import load_dotenv
-import logging
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import uvicorn
 from app.agent import DrawingAgent
-from vector_db import VectorDB        # <-- импорт
+from rag.vectors import VectorDB
 
-load_dotenv()
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+app = FastAPI(title="Drawing Agent API")
+
+# Глобальные переменные для хранения инстансов
+agent_instance = None
+
+
+class AnalysisRequest(BaseModel):
+    path: str
+    question: str
+    thread_id: str = "default_session"
+
+
+@app.post("/process")
+async def process_drawing(req: AnalysisRequest):
+    """Эндпоинт для анализа чертежа"""
+    if not agent_instance:
+        raise HTTPException(status_code=503, detail="Агент еще инициализируется")
+
+    result = await agent_instance.run(
+        path=req.path,
+        question=req.question,
+        thread_id=req.thread_id
+    )
+
+    if result and result.get("success"):
+        return result
+    else:
+        raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+
 
 @hydra.main(config_path="config", config_name="config", version_base=None)
 def main(cfg: DictConfig):
-    asyncio.run(async_main(cfg))
+    global agent_instance
 
-async def async_main(cfg: DictConfig):
-    # Создаём VectorDB заранее (можно вынести в db.py, но для агента автономно)
+    # Инициализация логики агента
     vector_db = VectorDB(dimension=384)
-    agent = DrawingAgent(cfg, vector_db=vector_db)   # передаём
+    agent_instance = DrawingAgent(cfg, vector_db=vector_db)
 
-    drawing_path = input("\nПуть к чертежу (PDF/PNG/JPG): ").strip()
-    thread_id = cfg.run.thread_id if hasattr(cfg, 'run') else "drawing_session_1"
+    # Запуск сервера
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
-    print("\nДля выхода: q, quit, exit\n")
-
-    try:
-        while True:
-            question = input("Вопрос: ").strip()
-            if question.lower() in ["q", "quit", "exit"]:
-                print("\nДо свидания!")
-                break
-            if not question:
-                continue
-
-            print("\nАссистент анализирует...")
-            result = await agent.run(
-                path=drawing_path,
-                question=question,
-                wait_time=cfg.agent.wait_time if hasattr(cfg, 'agent') else 4,
-                thread_id=thread_id
-            )
-            # Проверка на None (защита)
-            if result is None:
-                print("ОШИБКА: агент вернул None (внутренняя ошибка)")
-                continue
-            if result["success"]:
-                print(f"ОТВЕТ:\n{result['answer']}")
-            else:
-                print(f"ОШИБКА:\n{result['error']}")
-
-    except KeyboardInterrupt:
-        print("\n\nПрервано пользователем")
-    finally:
-        agent.close()
 
 if __name__ == "__main__":
     main()

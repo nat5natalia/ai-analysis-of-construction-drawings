@@ -1,52 +1,93 @@
 import os
-import numpy as np
 import faiss
+import numpy as np
 import pickle
-from typing import List, Tuple
+from typing import List, Dict, Any, Optional
 
-class VectorStore:
+
+class VectorDB:
     """
-    Обёртка над FAISS для хранения и поиска эмбеддингов, адаптированная из backend/vector_db.py.
+    Постоянное векторное хранилище.
+    Поддерживает произвольные ID, удаление и сохранение на диск.
     """
-    def __init__(self, index_path: str = "faiss_index.bin", metadata_path: str = "faiss_metadata.pkl"):
-        self.index_path = index_path
-        self.metadata_path = metadata_path
+
+    def __init__(self, dimension: int = 384, save_dir: str = "storage/vector_db"):
+        self.dimension = dimension
+        self.save_dir = save_dir
+        self.index_path = os.path.join(save_dir, "faiss.index")
+        self.meta_path = os.path.join(save_dir, "metadata.pkl")
+
+        os.makedirs(save_dir, exist_ok=True)
+
         self.index = None
-        self.metadata = []  # список текстов в порядке добавления
+        self.metadata: Dict[int, Dict[str, Any]] = {}
         self._load_or_create()
 
     def _load_or_create(self):
-        if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
-            self.index = faiss.read_index(self.index_path)
-            with open(self.metadata_path, "rb") as f:
-                self.metadata = pickle.load(f)
-        else:
-            # Создаём плоский индекс inner product (после нормализации даёт косинусное сходство)
-            self.index = faiss.IndexFlatIP(384)  # размерность эмбеддинга 384 для 'all-MiniLM-L6-v2'
-            self.metadata = []
-            self._save()
+        if os.path.exists(self.index_path) and os.path.exists(self.meta_path):
+            try:
+                self.index = faiss.read_index(self.index_path)
+                with open(self.meta_path, "rb") as f:
+                    self.metadata = pickle.load(f)
+                return
+            except Exception as e:
+                print(f"Ошибка загрузки индекса: {e}. Создаем новый.")
+
+        # Если файлов нет или ошибка — создаем новый
+        base_index = faiss.IndexFlatIP(self.dimension)
+        self.index = faiss.IndexIDMap(base_index)
+        self.metadata = {}
 
     def _save(self):
+        """Принудительное сохранение состояния на диск."""
         faiss.write_index(self.index, self.index_path)
-        with open(self.metadata_path, "wb") as f:
+        with open(self.meta_path, "wb") as f:
             pickle.dump(self.metadata, f)
 
-    def add(self, text: str, embedding: List[float]):
-        vec = np.array(embedding, dtype=np.float32).reshape(1, -1)
-        faiss.normalize_L2(vec)
-        self.index.add(vec)
-        self.metadata.append(text)
+    def add(self, vectors: np.ndarray, ids: List[int], metadata_list: List[Dict[str, Any]]):
+        """Добавление векторов с сохранением."""
+        vectors = vectors.astype('float32')
+        if len(vectors.shape) == 1:
+            vectors = vectors.reshape(1, -1)
+
+        faiss.normalize_L2(vectors)
+        self.index.add_with_ids(vectors, np.array(ids, dtype='int64'))
+
+        for i, vec_id in enumerate(ids):
+            self.metadata[int(vec_id)] = metadata_list[i]
+
         self._save()
 
-    def search(self, query_embedding: List[float], k: int = 5) -> List[Tuple[str, float]]:
-        """Ищет k ближайших соседей, возвращает список (text, similarity)."""
+    def search(self, query_vector: np.ndarray, k: int = 5) -> List[Dict[str, Any]]:
         if self.index.ntotal == 0:
             return []
-        vec = np.array(query_embedding, dtype=np.float32).reshape(1, -1)
-        faiss.normalize_L2(vec)
-        distances, indices = self.index.search(vec, min(k, self.index.ntotal))
+
+        query_vector = query_vector.astype('float32').reshape(1, -1)
+        faiss.normalize_L2(query_vector)
+
+        distances, ids = self.index.search(query_vector, k)
+
         results = []
-        for idx, dist in zip(indices[0], distances[0]):
-            if idx != -1:
-                results.append((self.metadata[idx], float(dist)))
+        for dist, idx in zip(distances[0], ids[0]):
+            if idx == -1: continue
+            results.append({
+                'id': int(idx),
+                'score': float(dist),
+                'metadata': self.metadata.get(int(idx), {})
+            })
         return results
+
+    def delete(self, ids: List[int]):
+        """Удаление векторов по ID и обновление файла."""
+        if not ids: return
+
+        id_array = np.array(ids, dtype='int64')
+        self.index.remove_ids(id_array)
+
+        for vid in ids:
+            self.metadata.pop(int(vid), None)
+
+        self._save()
+
+    def count(self):
+        return self.index.ntotal

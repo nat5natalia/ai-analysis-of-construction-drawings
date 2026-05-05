@@ -2,7 +2,7 @@ defaults:
   - model: custom
   - agent: default
   - image: default
-  - monitoring: clearml  
+  - monitoring: clearml
   - _self_
 
 project_name: Drawing_Agent
@@ -12,4 +12,4 @@ debug: false
 run:
   thread_id: drawing_session_1
   use_instructor: false
-  use_rag: false 
+

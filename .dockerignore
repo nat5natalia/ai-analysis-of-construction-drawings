@@ -1,0 +1,11 @@
+# .dockerignore
+**/__pycache__
+**/.venv
+**/venv
+**/.git
+**/data
+**/outputs
+**/.ipynb_checkpoints
+*.pdf
+*.png
+*.jpg

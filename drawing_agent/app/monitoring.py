@@ -51,5 +51,18 @@ def log_metric(name: str, value: any):
     with open(metrics_file, "a", encoding="utf-8") as f:
         f.write(metric_entry + "\n")
 
+def log_cache_operation(operation: str, key: str, success: bool):
+    """Логирует операции с кэшем."""
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "operation": operation,
+        "key": key,
+        "success": success
+    }
+    cache_log_file = LOG_DIR / "cache_operations.jsonl"
+    with open(cache_log_file, "a", encoding="utf-8") as f:
+        json.dump(entry, f, ensure_ascii=False)
+        f.write("\n")
+
 def close_clearml():
     print(f"Логирование завершено.")

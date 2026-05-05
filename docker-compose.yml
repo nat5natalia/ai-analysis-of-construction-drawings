@@ -1,57 +1,90 @@
-version: '3.8'
-
 services:
   redis:
     image: redis:alpine
-    ports:
-      - "6379:6379"
+    container_name: drawing_redis
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   mongodb:
     image: mongo:latest
-    ports:
-      - "27017:27017"
+    container_name: drawing_mongo
     volumes:
       - mongo_data:/data/db
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   drawing-agent:
-    build: ./drawing_agent
-    ports:
-      - "8001:8000"
+    build:
+      context: .
+      dockerfile: drawing_agent/Dockerfile
+    container_name: drawing_agent
     environment:
-      - MONGO_URL=mongodb://mongodb:27017
-    depends_on:
-      - mongodb
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./dataset:/app/dataset
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
 
   celery-worker:
-    build: ./celery_worker
+    build:
+      context: .
+      dockerfile: celery_worker/Dockerfile
+    container_name: drawing_worker
     environment:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017
       - AGENT_URL=http://drawing-agent:8000/process
+      - DATASET_PATH=/app/dataset
+    volumes:
+      - ./dataset:/app/dataset
     depends_on:
-      - redis
-      - mongodb
-      - drawing-agent
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      drawing-agent:
+        condition: service_healthy
     restart: unless-stopped
 
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: drawing_backend
     ports:
       - "8000:8000"
     environment:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017
+      - DATASET_PATH=/app/dataset
+    volumes:
+      - ./dataset:/app/dataset
     depends_on:
-      - redis
-      - mongodb
-      - celery-worker
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      drawing-agent:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+    container_name: drawing_frontend
     ports:
       - "3000:80"
     depends_on:

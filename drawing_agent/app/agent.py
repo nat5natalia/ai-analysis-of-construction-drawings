@@ -1,6 +1,7 @@
 # app/agent.py
 import os
 import time
+import asyncio
 from typing import Dict, Optional
 from omegaconf import DictConfig
 from langchain_core.messages import HumanMessage, AIMessage
@@ -18,21 +19,22 @@ class DrawingAgent:
     def __init__(self, cfg: DictConfig, vector_db=None):
         self.cfg = cfg
         if vector_db is None:
-            # Импорт должен работать благодаря Dockerfile и структуре проекта
             from vector_db import VectorDB
             vector_db = VectorDB(dimension=384)
 
-        # Создаём менеджер знаний ОДИН раз с переданным vector_db
         self.drawing_knowledge = DrawingKnowledgeManager(vector_db=vector_db)
+        # ВАЖНО: build_graph должен возвращать скомпилированный асинхронный граф
         self.graph = build_graph(cfg)
         init_clearml()
         self.stats = {"questions": 0, "total_time": 0, "errors": 0}
         self.cache = AgentCache()
 
     def _extract_answer(self, result: dict) -> str:
+        if not result or "messages" not in result:
+            return ""
         messages = result.get("messages", [])
         for msg in reversed(messages):
-            if isinstance(msg, AIMessage):
+            if isinstance(msg, AIMessage) and msg.content:
                 return msg.content
         return ""
 
@@ -42,12 +44,10 @@ class DrawingAgent:
         start_time = time.time()
         if thread_id is None:
             thread_id = "default"
-        # Конфиг для LangGraph с thread_id
-        config = {"configurable": {"thread_id": thread_id}}
 
+        config = {"configurable": {"thread_id": thread_id}}
         cache_key = f"{thread_id}:{path}:{page}:{question}"
 
-        # Проверка кеша ответов
         cached = self.cache.get(cache_key)
         if cached:
             log_cache_operation("get", cache_key, True)
@@ -56,6 +56,7 @@ class DrawingAgent:
         log_cache_operation("get", cache_key, False)
 
         try:
+            # Загрузка данных чертежа (синхронная или обернутая в thread)
             drawing_data = self.drawing_knowledge.load_drawing_and_cache(path, page)
             image_base64 = drawing_data["image_base64"]
             ocr_text = drawing_data.get("ocr_text", "")
@@ -75,8 +76,10 @@ class DrawingAgent:
                 "page": page,
                 "ocr_text": ocr_text,
                 "context": rag_context,
+                "analysis_complete": False  # Инициализируем флаг
             }
 
+            # Вызов асинхронного графа
             result = await self.graph.ainvoke(initial_state, config=config)
             answer = self._extract_answer(result)
 

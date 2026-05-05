@@ -9,3 +9,6 @@ logs/
 venv/
 .venv/
 *.docx
+.idea/
+venv311/
+dataset/

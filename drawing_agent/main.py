@@ -1,58 +1,101 @@
 import asyncio
+import logging
+import uvicorn
 import hydra
 from omegaconf import DictConfig
-from dotenv import load_dotenv
-import logging
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from app.agent import DrawingAgent
-from vector_db import VectorDB        # <-- импорт
+from rag.vectors import VectorDB
 
-load_dotenv()
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+# Настройка логирования, чтобы видеть прогресс в консоли Docker
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Drawing Agent API")
+
+# Глобальный инстанс агента
+agent_instance = None
+
+
+class AnalysisRequest(BaseModel):
+    path: str
+    question: str
+    thread_id: str = "default_session"
+
+
+@app.get("/health")
+async def health_check():
+    """Проверка готовности агента для Docker Healthcheck или Celery"""
+    if agent_instance:
+        return {"status": "ready"}
+    return {"status": "initializing"}, 503
+
+
+@app.post("/process")
+async def process_drawing(req: AnalysisRequest):
+    """Эндпоинт для анализа чертежа"""
+    if not agent_instance:
+        logger.error("Попытка вызова до завершения инициализации")
+        raise HTTPException(status_code=503, detail="Агент еще инициализируется. Подождите 1-2 минуты.")
+
+    logger.info(f"--- Новая задача: {req.thread_id} ---")
+    logger.info(f"Файл: {req.path} | Вопрос: {req.question}")
+
+    try:
+        # ВАЖНО: убедись, что DrawingAgent.run — это async def
+        result = await agent_instance.run(
+            path=req.path,
+            question=req.question,
+            thread_id=req.thread_id
+        )
+
+        if result and result.get("success"):
+            logger.info(f"Задача {req.thread_id} успешно выполнена")
+            return result
+
+        error_msg = result.get("error") if result else "Пустой ответ от логики агента"
+        logger.error(f"Ошибка в логике агента: {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+
+    except Exception as e:
+        logger.exception(f"Критический сбой при обработке: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
 
 @hydra.main(config_path="config", config_name="config", version_base=None)
 def main(cfg: DictConfig):
-    asyncio.run(async_main(cfg))
+    global agent_instance
 
-async def async_main(cfg: DictConfig):
-    # Создаём VectorDB заранее (можно вынести в db.py, но для агента автономно)
-    vector_db = VectorDB(dimension=384)
-    agent = DrawingAgent(cfg, vector_db=vector_db)   # передаём
-
-    drawing_path = input("\nПуть к чертежу (PDF/PNG/JPG): ").strip()
-    thread_id = cfg.run.thread_id if hasattr(cfg, 'run') else "drawing_session_1"
-
-    print("\nДля выхода: q, quit, exit\n")
+    logger.info("Запуск процесса инициализации Drawing Agent...")
 
     try:
-        while True:
-            question = input("Вопрос: ").strip()
-            if question.lower() in ["q", "quit", "exit"]:
-                print("\nДо свидания!")
-                break
-            if not question:
-                continue
+        # Инициализация VectorDB (384 — размерность для all-MiniLM-L6-v2)
+        vector_db = VectorDB(dimension=384)
 
-            print("\nАссистент анализирует...")
-            result = await agent.run(
-                path=drawing_path,
-                question=question,
-                wait_time=cfg.agent.wait_time if hasattr(cfg, 'agent') else 4,
-                thread_id=thread_id
-            )
-            # Проверка на None (защита)
-            if result is None:
-                print("ОШИБКА: агент вернул None (внутренняя ошибка)")
-                continue
-            if result["success"]:
-                print(f"ОТВЕТ:\n{result['answer']}")
-            else:
-                print(f"ОШИБКА:\n{result['error']}")
+        # Инициализация самого агента (здесь загружаются YOLO, OCR и прочее)
+        # ВАЖНО: Убедись, что в __init__ DrawingAgent нет бесконечных циклов
+        agent_instance = DrawingAgent(cfg, vector_db=vector_db)
 
-    except KeyboardInterrupt:
-        print("\n\nПрервано пользователем")
-    finally:
-        agent.close()
+        logger.info("✅ Все модели загружены. Агент готов принимать запросы.")
+
+        # Запуск Uvicorn
+        # timeout_keep_alive=600 позволит держать соединение долго при тяжелой обработке
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8000,
+            log_level="info",
+            timeout_keep_alive=600,
+            access_log=True
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при старте сервера: {e}")
+        raise e
+
 
 if __name__ == "__main__":
     main()

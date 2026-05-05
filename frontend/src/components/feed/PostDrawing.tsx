@@ -32,28 +32,28 @@ const PostDrawing = () => {
     });
 
     return (
-        <div className="flex w-1/5 flex-col bg-white pt-5 pb-10 h-fit mt-6 rounded-2xl">
+        <div className="flex w-full lg:w-1/5 md:w-1/5 flex-col bg-blue-100 border-2 border-blue-200 pt-5 pb-10 h-fit mt-6 rounded-2xl">
             <p className="ml-2 text-gray-600">• Перетащите чертеж</p>
             <p className="ml-2 text-gray-600">• Или нажмите для выбора</p>
             <div className="w-full flex justify-center mt-4">
                 <div
                     {...getRootProps()}
                     className={`relative flex w-2/3 p-5 justify-center items-center rounded-xl cursor-pointer transition-all duration-300
-          ${isDragActive ? 'bg-gray-400 scale-105' : 'bg-gray-300 hover:bg-gray-400'}
+          ${isDragActive ? 'bg-blue-400 scale-105' : 'bg-blue-200 hover:bg-blue-400'}
         `}
                 >
                     <input {...getInputProps()} />
                     {isLoading ? (
-                        <RiLoader4Line className="text-8xl text-gray-600 transition-all duration-300 " />
+                        <RiLoader4Line className="text-8xl text-blue-600 transition-all duration-300 " />
                     ) : (
                         <FaFileUpload
-                            className={`text-8xl text-gray-600 transition-all duration-300
+                            className={`text-8xl text-blue-600 transition-all duration-300
             ${isDragActive ? 'opacity-30' : 'opacity-100'}
           `}
                         />
                     )}
                     <span
-                        className={`absolute text-gray-700 text-center transition-all duration-300
+                        className={`absolute text-blue-700 text-center transition-all duration-300
             ${isDragActive ? 'opacity-100' : 'opacity-0'}
           `}
                     >

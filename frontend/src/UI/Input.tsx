@@ -6,6 +6,7 @@ interface IInput {
     placeholder: string;
     className?: string;
     decoration?: React.ReactNode;
+    disabled?: boolean;
 }
 
 const Input: FC<IInput> = ({
@@ -14,6 +15,7 @@ const Input: FC<IInput> = ({
     className = '',
     decoration = null,
     value,
+    disabled,
 }) => {
     return (
         <div className={`relative ${className}`}>
@@ -22,6 +24,7 @@ const Input: FC<IInput> = ({
                 placeholder={placeholder}
                 onChange={onChange}
                 value={value}
+                disabled={disabled}
             />
             {decoration && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">

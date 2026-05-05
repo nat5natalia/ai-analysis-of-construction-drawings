@@ -16,9 +16,9 @@ const Drawing: FC<IDrawing> = ({ drawing }) => {
     return (
         <div
             onClick={() => navigate(`/feed/${drawing.id}`)}
-            className="bg-white w-full h-full rounded-2xl cursor-pointer overflow-hidden flex flex-col 
+            className="bg-blue-100 border-2 border-blue-200 w-full h-full rounded-2xl cursor-pointer overflow-hidden flex flex-col 
                 transition-all duration-300 ease-in-out 
-                hover:scale-105 hover:bg-gray-100"
+                hover:scale-103 hover:bg-blue-200"
         >
             <div className="flex-1 flex items-center justify-center overflow-hidden p-2">
                 <img
@@ -30,7 +30,7 @@ const Drawing: FC<IDrawing> = ({ drawing }) => {
 
             {drawing.uploaded_at ? (
                 <div className="w-full pl-4 pr-4 pb-2 flex justify-between">
-                    <p className="text-gray-600 font-medium truncate">
+                    <p className="text-gray-600 w-1/2 font-medium truncate">
                         {drawing.filename}
                     </p>
                     <p className="text-gray-400">

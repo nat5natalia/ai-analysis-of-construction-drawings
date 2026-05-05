@@ -20,8 +20,14 @@ const Feed = () => {
     useEffect(() => {
         console.log(data);
     }, [data]);
+    useEffect(() => {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth',
+        });
+    }, [page]);
     return (
-        <div className="bg-gray-200 h-screen w-full flex flex-col">
+        <div className="bg-gray-200 min-h-screen lg:h-screen w-full flex flex-col">
             <div className="p-6">
                 <h1 className="font-bold text-2xl">Мои чертежи</h1>
 
@@ -30,13 +36,13 @@ const Feed = () => {
                 </p>
             </div>
             <SearchAccordion />
-            <div className="flex ml-6 mr-6 flex-1 overflow-hidden">
+            <div className="flex flex-col lg:flex-row ml-6 mr-6 lg:flex-1 overflow-hidden">
                 <PostDrawing />
                 <div
                     className={`flex-1 p-6 flex flex-col  ${isFetching ? 'opacity-50' : ''}`}
                 >
                     {isError && <ErrorState />}
-                    <div className="flex-1 grid grid-cols-3 grid-rows-2 gap-4 mb-3 h-1/2">
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-3 h-1/2">
                         {isSuccess &&
                             data.drawings.map((drawing) => {
                                 return (

@@ -1,8 +1,7 @@
 from langgraph.graph import StateGraph, END, START
 from langgraph.checkpoint.memory import MemorySaver
-from app.state import AgentState
-from app.nodes import preprocess_node, agent_node, tools_node, instructor_node, should_continue
-
+from .state import AgentState
+from .nodes import preprocess_node, agent_node, tools_node, instructor_node, should_continue
 
 def build_graph(cfg):
     workflow = StateGraph(AgentState)

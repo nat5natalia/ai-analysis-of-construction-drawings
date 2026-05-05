@@ -5,13 +5,12 @@ import asyncio
 from typing import Dict, Optional
 from omegaconf import DictConfig
 from langchain_core.messages import HumanMessage, AIMessage
-from app.graph import build_graph
-from app.monitoring import init_clearml, close_clearml, log_question_answer, log_cache_operation
-from app.tools import set_current_drawing
-from app.drawing_cache import DrawingKnowledgeManager
-from app.cache import AgentCache
+from .graph import build_graph
+from .monitoring import init_clearml, close_clearml, log_question_answer, log_cache_operation
+from .tools import set_current_drawing
+from .drawing_cache import DrawingKnowledgeManager
+from .cache import AgentCache
 import logging
-
 logger = logging.getLogger(__name__)
 
 

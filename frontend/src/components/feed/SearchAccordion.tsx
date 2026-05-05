@@ -50,12 +50,12 @@ const SearchAccordion = () => {
     return (
         <div className="ml-6 mr-6 relative">
             <div
-                className={`flex bg-white ${search.length > 0 ? 'rounded-t-2xl' : 'rounded-2xl'}  p-3 gap-2`}
+                className={`flex bg-blue-100 border-2 border-blue-200 ${search.length > 0 ? 'rounded-t-2xl' : 'rounded-2xl'}  p-3 gap-2`}
             >
                 <Input
                     value={search}
                     placeholder="Найти чертеж..."
-                    className="w-full bg-gray-200 rounded-xl"
+                    className="w-full bg-blue-50 rounded-xl"
                     decoration={
                         <IoMdCloseCircle
                             className="cursor-pointer"
@@ -67,7 +67,7 @@ const SearchAccordion = () => {
             </div>
 
             {search.length > 0 && (
-                <div className="absolute top-full left-0 w-full bg-white shadow-lg rounded-b-2xl z-50 overflow-x-auto">
+                <div className="absolute top-full left-0 w-full bg-blue-100 shadow-lg rounded-b-2xl z-50 overflow-x-auto">
                     <div className="flex flex-row gap-2 p-2 h-50">
                         {isFetching && <LoadingState />}
                         {results.length === 0 && !isFetching && (
@@ -82,7 +82,7 @@ const SearchAccordion = () => {
                             results.map((item) => (
                                 <div
                                     key={item.id}
-                                    className={`shrink-0 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 cursor-pointer whitespace-nowrap ${isFetching ? 'opacity-30' : ''}`}
+                                    className={`shrink-0 px-4 py-2 bg-white rounded-lg  cursor-pointer whitespace-nowrap ${isFetching ? 'opacity-30' : ''}`}
                                 >
                                     <Drawing drawing={item} />
                                 </div>
@@ -91,7 +91,7 @@ const SearchAccordion = () => {
                             <div className="h-full flex items-center justify-center">
                                 <div
                                     onClick={() => setPage((prev) => prev + 1)}
-                                    className="h-fit w-fit rounded-2xl bg-blue-500 pt-3 pb-3"
+                                    className="h-fit w-fit rounded-2xl bg-blue-500 pt-3 pb-3 mr-3"
                                 >
                                     <IoMdMore className="text-white text-2xl " />
                                 </div>

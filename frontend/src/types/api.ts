@@ -64,3 +64,14 @@ export interface IAskResponse {
     answer: string;
     answered_at: string;
 }
+
+interface IGetStatusCompleted {
+    status: 'completed';
+    answer: string;
+}
+
+interface IGetStatusProcessing {
+    status: 'processing';
+}
+
+export type IGetStatus = IGetStatusCompleted | IGetStatusProcessing;

@@ -4,6 +4,7 @@ import type {
     IDescriptionResponse,
     IDrawingResponse,
     IDrawingsResponse,
+    IGetStatus,
     ISearchResponse,
     ISimilarResponse,
     IUploadResponse,
@@ -134,7 +135,11 @@ export const drawingsApi = createApi({
                 method: 'POST',
                 body: { question },
             }),
-            invalidatesTags: () => [{ type: 'Items', id: 'LIST' }],
+        }),
+
+        getAskStatus: builder.query<IGetStatus, { id: string }>({
+            query: ({ id }) => `ask/status/${id}`,
+            keepUnusedDataFor: 0,
         }),
     }),
 });
@@ -148,4 +153,5 @@ export const {
     useGetDescriptionQuery,
     useUploadDrawingMutation,
     useSimilarDrawingsQuery,
+    useLazyGetAskStatusQuery,
 } = drawingsApi;

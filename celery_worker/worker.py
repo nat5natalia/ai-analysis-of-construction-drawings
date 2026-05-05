@@ -2,6 +2,7 @@ import os
 import requests
 import logging
 import time
+from datetime import datetime, timezone
 from celery import Celery
 from pymongo import MongoClient
 
@@ -61,7 +62,8 @@ def process_drawing(self, drawing_id: str, question: str):
         response.raise_for_status()
         result = response.json()
 
-        if result.get("success") or "answer" in result:
+        # Issue 6: Check result.get("success") instead of "answer" in result
+        if result.get("success"):
             status = "completed"
             answer = result.get("answer")
             # Если агент сохранил новую картинку (с разметкой), он должен вернуть 'processed_path'
@@ -73,6 +75,19 @@ def process_drawing(self, drawing_id: str, question: str):
             processed_path = None
             error_msg = result.get("error", "Unknown agent error")
 
+    # Issue 5: Retry on HTTP 502/503/504
+    except requests.exceptions.HTTPError as http_err:
+        # Retry on 502/503/504 gateway errors
+        if response.status_code in (502, 503, 504):
+            logger.warning(f"Agent returned {response.status_code}, retrying... Response: {response.text}")
+            client.close()
+            raise self.retry(exc=http_err, countdown=30)
+        # Other HTTP errors fall through to generic handler
+        logger.error(f"HTTP error from agent: {http_err}")
+        status = "failed"
+        answer = None
+        processed_path = None
+        error_msg = f"HTTP {response.status_code}: {response.text}"
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
         logger.warning(f"Агент недоступен или занят, ретрай через 30 сек... Ошибка: {exc}")
         client.close()
@@ -85,11 +100,12 @@ def process_drawing(self, drawing_id: str, question: str):
         error_msg = str(e)
 
     # 3. Обновление данных в MongoDB
+    # Issue 7: Use UTC timestamp
     update_data = {
         "status": status,
         "error": error_msg,
         "last_answer": answer,
-        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     }
 
     # Если получили описание — сохраняем его

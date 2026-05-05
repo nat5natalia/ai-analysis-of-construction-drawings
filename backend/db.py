@@ -20,6 +20,22 @@ class MongoDB:
 # Создаем экземпляр
 db_manager = MongoDB()
 
+# Lazy getter function for drawings collection
+def get_drawings_collection():
+    """Get drawings collection, ensuring connection is initialized"""
+    db_manager.connect()
+    return db_manager.collection
+
+# Export as 'drawings' for backward compatibility - this will be a module-level callable
+# that returns the collection after ensuring connection
+class _DrawingsProxy:
+    """Proxy object that ensures connection before accessing collection"""
+    def __getattr__(self, name):
+        db_manager.connect()
+        return getattr(db_manager.collection, name)
+
+drawings = _DrawingsProxy()
+
 async def save_drawing(drawing: dict):
     db_manager.connect()
     await db_manager.collection.insert_one(drawing)
@@ -27,15 +43,3 @@ async def save_drawing(drawing: dict):
 async def get_drawing(drawing_id: str):
     db_manager.connect()
     return await db_manager.collection.find_one({"id": drawing_id}, {"_id": 0})
-
-db_manager = MongoDB()
-db_manager.connect() # Подключаемся при старте модуля
-
-# Экспортируем переменную для main.py
-drawings = db_manager.collection
-
-async def save_drawing(drawing: dict):
-    await drawings.insert_one(drawing)
-
-async def get_drawing(drawing_id: str):
-    return await drawings.find_one({"id": drawing_id}, {"_id": 0})

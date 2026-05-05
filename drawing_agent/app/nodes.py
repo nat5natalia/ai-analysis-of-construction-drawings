@@ -148,7 +148,7 @@ async def tools_node(state: AgentState) -> AgentState:
 
             # Обновление стейта на основе вызовов
             if tool_name == "extract_text":
-                state["ocr_text"] = result
+                state["ocr_text"] = str(result)
             elif tool_name == "detect_holes":
                 state["extracted_holes"] = _parse_holes_result(str(result))
             elif tool_name == "extract_dimensions":
@@ -156,7 +156,7 @@ async def tools_node(state: AgentState) -> AgentState:
             elif tool_name == "detect_tables":
                 if "extracted_tables" not in state:
                     state["extracted_tables"] = []
-                state["extracted_tables"].append(result)
+                state["extracted_tables"].append(str(result))
             elif tool_name == "detect_yolo_objects":
                 state["yolo_detection"] = _parse_yolo_result(str(result))
 
@@ -236,13 +236,16 @@ def _parse_dimensions_result(result: str) -> Dict:
     if not result:
         return dimensions
 
-    w = re.search(r'Ширина:\s+([\d\.]+)\s+мм', result)
-    h = re.search(r'Высота:\s+([\d\.]+)\s+мм', result)
-    l = re.search(r'Количество линий:\s+(\d+)', result)
+    width_match = re.search(r'Ширина:\s+([\d\.]+)\s+мм', result)
+    height_match = re.search(r'Высота:\s+([\d\.]+)\s+мм', result)
+    lines_match = re.search(r'Количество линий:\s+(\d+)', result)
 
-    if w: dimensions["width_mm"] = float(w.group(1))
-    if h: dimensions["height_mm"] = float(h.group(1))
-    if l: dimensions["lines_count"] = int(l.group(1))
+    if width_match:
+        dimensions["width_mm"] = float(width_match.group(1))
+    if height_match:
+        dimensions["height_mm"] = float(height_match.group(1))
+    if lines_match:
+        dimensions["lines_count"] = int(lines_match.group(1))
     return dimensions
 
 

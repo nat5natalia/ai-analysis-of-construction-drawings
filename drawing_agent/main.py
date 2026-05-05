@@ -30,9 +30,10 @@ class AnalysisRequest(BaseModel):
 @app.get("/health")
 async def health_check():
     """Проверка готовности агента для Docker Healthcheck или Celery"""
+    from fastapi.responses import JSONResponse
     if agent_instance:
         return {"status": "ready"}
-    return {"status": "initializing"}, 503
+    return JSONResponse(status_code=503, content={"status": "initializing"})
 
 
 @app.post("/process")
@@ -42,13 +43,44 @@ async def process_drawing(req: AnalysisRequest):
         logger.error("Попытка вызова до завершения инициализации")
         raise HTTPException(status_code=503, detail="Агент еще инициализируется. Подождите 1-2 минуты.")
 
+    # Validate and sanitize path
+    import os
+    from urllib.parse import urlparse
+
+    # Reject URI schemes
+    if '://' in req.path:
+        parsed = urlparse(req.path)
+        if parsed.scheme:
+            raise HTTPException(status_code=400, detail="URI schemes not allowed, provide filesystem path")
+
+    # Resolve to absolute path
+    try:
+        sanitized_path = os.path.realpath(req.path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid path: {str(e)}")
+
+    # Check it's under allowed root
+    allowed_root = os.path.realpath("/app/dataset")
+    if not sanitized_path.startswith(allowed_root):
+        raise HTTPException(status_code=400, detail="Path must be under /app/dataset")
+
+    # Check file extension
+    allowed_extensions = {'.pdf', '.dwg', '.png', '.jpg', '.jpeg', '.tif', '.tiff'}
+    file_ext = os.path.splitext(sanitized_path)[1].lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"File extension {file_ext} not allowed")
+
+    # Check file exists
+    if not os.path.exists(sanitized_path):
+        raise HTTPException(status_code=400, detail="File does not exist")
+
     logger.info(f"--- Новая задача: {req.thread_id} ---")
-    logger.info(f"Файл: {req.path} | Вопрос: {req.question}")
+    logger.info(f"Файл: {sanitized_path} | Вопрос: {req.question}")
 
     try:
         # ВАЖНО: убедись, что DrawingAgent.run — это async def
         result = await agent_instance.run(
-            path=req.path,
+            path=sanitized_path,
             question=req.question,
             thread_id=req.thread_id
         )
@@ -61,6 +93,9 @@ async def process_drawing(req: AnalysisRequest):
         logger.error(f"Ошибка в логике агента: {error_msg}")
         raise HTTPException(status_code=500, detail=error_msg)
 
+    except HTTPException:
+        # Re-raise HTTPException without modification
+        raise
     except Exception as e:
         logger.exception(f"Критический сбой при обработке: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")

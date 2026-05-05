@@ -93,7 +93,16 @@ async def upload_drawing(file: UploadFile = File(...)):
             break
 
     # Отправляем задачу в Celery только когда запись точно в базе
-    celery_process_task.delay(drawing_id, "Сделай техническое описание чертежа.")
+    try:
+        celery_process_task.delay(drawing_id, "Сделай техническое описание чертежа.")
+    except Exception as e:
+        # Handle broker connection errors
+        print(f"Failed to dispatch Celery task: {e}")
+        await db_manager.collection.update_one(
+            {"id": drawing_id},
+            {"$set": {"status": "queued_failed", "error": f"Broker error: {str(e)}"}}
+        )
+        raise HTTPException(status_code=503, detail=f"Failed to queue task: {str(e)}")
 
     return {"id": drawing_id, "status": "processing"}
 
@@ -105,8 +114,17 @@ async def ask_about_drawing(drawing_id: str, body: AskRequest):
         raise HTTPException(status_code=404, detail="Чертеж не найден")
 
     # Отправляем вопрос в очередь
-    task = celery_process_task.delay(drawing_id, body.question)
-    return {"id": drawing_id, "task_id": task.id, "status": "queued"}
+    try:
+        task = celery_process_task.delay(drawing_id, body.question)
+        return {"id": drawing_id, "task_id": task.id, "status": "queued"}
+    except Exception as e:
+        # Handle broker connection errors
+        print(f"Failed to dispatch Celery task for question: {e}")
+        await db_manager.collection.update_one(
+            {"id": drawing_id},
+            {"$set": {"status": "queued_failed", "error": f"Broker error: {str(e)}"}}
+        )
+        raise HTTPException(status_code=503, detail=f"Failed to queue task: {str(e)}")
 
 
 # --- 3. Удаление ---
@@ -131,6 +149,12 @@ async def search_drawings(q: str, limit: int = 10):
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
             response = await client.post(f"{AGENT_URL}/search", json={"query": q, "limit": limit})
+            response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Agent error (HTTP {e.response.status_code}): {e.response.text}"
+            )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Ошибка Агента: {str(e)}")

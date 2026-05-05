@@ -33,4 +33,4 @@ jobs:
           context: .
           file: ./backend/Dockerfile
           push: true
-          tags: ${{ vars.DOCKERHUB_USERNAME }}/ai-analysis-backend:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/ai-analysis-backend:latest

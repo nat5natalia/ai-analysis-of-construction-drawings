@@ -7,7 +7,7 @@ from PIL import Image
 from langchain_core.tools import tool
 import easyocr
 import logging 
-from app.yolo import get_yolo 
+from .yolo import get_yolo
 logger = logging.getLogger(__name__)
 _current_drawing = None
 _ocr_reader = None

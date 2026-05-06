@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   redis:
     image: redis:alpine
@@ -21,13 +23,15 @@ services:
       timeout: 5s
       retries: 5
 
-  drawing-agent:
+  drawing_agent:
     build:
       context: .
       dockerfile: drawing_agent/Dockerfile
     container_name: drawing_agent
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PYTHONPATH=/app
+      - DATASET_PATH=/app/dataset
     volumes:
       - ./dataset:/app/dataset
     restart: unless-stopped
@@ -36,7 +40,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 60s
+      start_period: 120s
 
   celery-worker:
     build:
@@ -46,8 +50,9 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017
-      - AGENT_URL=http://drawing-agent:8000/process
+      - AGENT_URL=http://drawing_agent:8000/process
       - DATASET_PATH=/app/dataset
+      - PYTHONPATH=/app
     volumes:
       - ./dataset:/app/dataset
     depends_on:
@@ -55,7 +60,7 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      drawing-agent:
+      drawing_agent:
         condition: service_healthy
     restart: unless-stopped
 
@@ -70,6 +75,8 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017
       - DATASET_PATH=/app/dataset
+      - AGENT_URL=http://drawing_agent:8000/process
+      - PYTHONPATH=/app
     volumes:
       - ./dataset:/app/dataset
     depends_on:
@@ -77,7 +84,7 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      drawing-agent:
+      drawing_agent:
         condition: service_healthy
     restart: unless-stopped
 

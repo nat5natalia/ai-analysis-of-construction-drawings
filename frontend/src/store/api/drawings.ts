@@ -13,7 +13,7 @@ import type {
 export const drawingsApi = createApi({
     reducerPath: 'drawingsApi',
     baseQuery: fetchBaseQuery({
-        baseUrl: 'http://127.0.0.1:8000/api',
+        baseUrl: 'https://cautious-eureka-jj96xq5xp69p3jjxg-8000.app.github.dev/api',
     }),
     tagTypes: ['Items', 'Search', 'Similar'],
     endpoints: (builder) => ({

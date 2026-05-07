@@ -43,7 +43,7 @@ class YOLODetector:
                         ]
                     }
                     detected.append(obj)
-            return detected 
+        return detected 
     def detect_drawing_elements(self, image_base64: str)-> Dict:
         objects = self.detect_from_base64(image_base64)
         result = {

@@ -34,6 +34,7 @@ services:
       - DATASET_PATH=/app/dataset
     volumes:
       - ./dataset:/app/dataset
+      - C:/Users/s0910/.EasyOCR:/root/.EasyOCR
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

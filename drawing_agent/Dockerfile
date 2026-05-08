@@ -21,6 +21,7 @@ ENV HF_HOME=/app/.cache
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache
 ENV YOLO_CONFIG_DIR=/tmp/Ultralytics
 ENV PYTHONPATH=/app
+ENV EASYOCR_MODULE_PATH=/app/.EasyOCR
 
 RUN python -c "import easyocr; easyocr.Reader(['ru', 'en'])" && \
     python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"

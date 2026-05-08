@@ -2,9 +2,11 @@ import os
 import requests
 import logging
 import time
+import sys
 from datetime import datetime, timezone
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from celery import Celery
-from pymongo import MongoClient
+from db_worker import get_drawing_sync, MongoClient
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,9 +15,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://mongodb:27017")
-DB_NAME = os.getenv("MONGO_DB", "drawings_db")
-AGENT_URL = os.getenv("AGENT_URL", "http://drawing-agent:8000/process")
+# ВАЖНО: Убедитесь, что в docker-compose сервис называется drawing_agent
+# И что URL не содержит лишних префиксов в конце
+AGENT_URL = os.getenv("AGENT_URL", "http://drawing_agent:8000/process")
 
 app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
 
@@ -24,14 +26,10 @@ app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
 def process_drawing(self, drawing_id: str, question: str):
     logger.info(f"--- [Запуск] Чертеж: {drawing_id} | Вопрос: {question} ---")
 
-    client = MongoClient(MONGO_URL)
-    db = client[DB_NAME]
-    drawings_collection = db["drawings"]
-
-    # 1. Поиск чертежа в БД
+    # 1. Поиск чертежа в БД через синхронный хелпер
     drawing = None
     for attempt in range(5):
-        drawing = drawings_collection.find_one({"id": drawing_id})
+        drawing = get_drawing_sync(drawing_id)
         if drawing:
             break
         logger.info(f"Попытка {attempt + 1}: чертеж {drawing_id} еще не в БД, ждем...")
@@ -39,11 +37,9 @@ def process_drawing(self, drawing_id: str, question: str):
 
     if not drawing:
         logger.error(f"Чертеж {drawing_id} не найден после 5 попыток.")
-        client.close()
         return {"status": "failed", "error": "Drawing not found in DB"}
 
     # 2. Подготовка запроса к агенту
-    # Берем путь из БД. Важно, чтобы этот путь был доступен внутри контейнера агента!
     file_path = drawing.get("file_path")
     payload = {
         "path": file_path,
@@ -52,21 +48,23 @@ def process_drawing(self, drawing_id: str, question: str):
     }
 
     try:
-        logger.info(f"Отправка запроса к Агенту: {AGENT_URL}")
-        # Таймаут 600 секунд (10 минут) — критично для тяжелых нейросетей
-        response = requests.post(AGENT_URL, json=payload, timeout=600)
+        # Очищаем URL от возможных двойных слешей при склейке, если это нужно
+        target_url = AGENT_URL.rstrip('/')
+        logger.info(f"Отправка запроса к Агенту: {target_url}")
 
-        # Логируем сырой ответ для отладки
-        logger.info(f"Ответ Агента (код {response.status_code}): {response.text}")
+        response = requests.post(target_url, json=payload, timeout=600)
+        logger.info(f"Ответ Агента (код {response.status_code})")
+
+        if response.status_code == 404:
+            logger.error(f"Эндпоинт не найден! Проверьте AGENT_URL: {target_url}. Ответ: {response.text}")
+            return {"status": "failed", "error": "Agent endpoint not found (404)"}
 
         response.raise_for_status()
         result = response.json()
 
-        # Issue 6: Check result.get("success") instead of "answer" in result
         if result.get("success"):
             status = "completed"
             answer = result.get("answer")
-            # Если агент сохранил новую картинку (с разметкой), он должен вернуть 'processed_path'
             processed_path = result.get("processed_path")
             error_msg = None
         else:
@@ -75,51 +73,36 @@ def process_drawing(self, drawing_id: str, question: str):
             processed_path = None
             error_msg = result.get("error", "Unknown agent error")
 
-    # Issue 5: Retry on HTTP 502/503/504
     except requests.exceptions.HTTPError as http_err:
-        # Retry on 502/503/504 gateway errors
         if response.status_code in (502, 503, 504):
-            logger.warning(f"Agent returned {response.status_code}, retrying... Response: {response.text}")
-            client.close()
             raise self.retry(exc=http_err, countdown=30)
-        # Other HTTP errors fall through to generic handler
-        logger.error(f"HTTP error from agent: {http_err}")
         status = "failed"
-        answer = None
-        processed_path = None
         error_msg = f"HTTP {response.status_code}: {response.text}"
-    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
-        logger.warning(f"Агент недоступен или занят, ретрай через 30 сек... Ошибка: {exc}")
-        client.close()
-        raise self.retry(exc=exc, countdown=30)
+        answer, processed_path = None, None
     except Exception as e:
-        logger.error(f"Критическая ошибка при связи с агентом: {e}")
+        logger.error(f"Ошибка связи: {e}")
         status = "failed"
-        answer = None
-        processed_path = None
         error_msg = str(e)
+        answer, processed_path = None, None
 
-    # 3. Обновление данных в MongoDB
-    # Issue 7: Use UTC timestamp
-    update_data = {
-        "status": status,
-        "error": error_msg,
-        "last_answer": answer,
-        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    }
+    # 3. Обновление в БД (используем прямое подключение для записи)
+    client = MongoClient(os.getenv("MONGO_URL", "mongodb://mongodb:27017"))
+    try:
+        db = client[os.getenv("MONGO_DB", "drawings_db")]
+        update_data = {
+            "status": status,
+            "error": error_msg,
+            "last_answer": answer,
+            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        }
+        if answer and any(k in question.lower() for k in ["опиши", "описание"]):
+            update_data["description"] = answer
+        if processed_path:
+            update_data["file_path"] = processed_path
 
-    # Если получили описание — сохраняем его
-    if answer and any(keyword in question.lower() for keyword in ["опиши", "описание", "техническое"]):
-        update_data["description"] = answer
+        db["drawings"].update_one({"id": drawing_id}, {"$set": update_data})
+    finally:
+        client.close()
 
-    # ВАЖНО: Если агент вернул путь к обработанному изображению, обновляем его,
-    # чтобы фронтенд загрузил новую версию картинки.
-    if processed_path:
-        logger.info(f"Обновляем путь к файлу на обработанный: {processed_path}")
-        update_data["file_path"] = processed_path
-
-    drawings_collection.update_one({"id": drawing_id}, {"$set": update_data})
-
-    client.close()
-    logger.info(f"--- [Завершено] Статус: {status} для {drawing_id} ---")
+    logger.info(f"--- [Завершено] Статус: {status} ---")
     return {"status": status, "drawing_id": drawing_id}

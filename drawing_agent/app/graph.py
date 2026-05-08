@@ -1,11 +1,13 @@
+# app/graph.py
 from langgraph.graph import StateGraph, END, START
-from langgraph.checkpoint.memory import MemorySaver
 from .state import AgentState
 from .nodes import preprocess_node, agent_node, tools_node, instructor_node, should_continue
 
-def build_graph(cfg):
+
+def build_graph(cfg, checkpointer=None):
     workflow = StateGraph(AgentState)
 
+    # Обертки для узлов
     async def preprocess_with_cfg(state: AgentState):
         return await preprocess_node(state, cfg)
 
@@ -15,34 +17,44 @@ def build_graph(cfg):
     async def instruct_with_cfg(state: AgentState):
         return await instructor_node(state, cfg)
 
-    def should_continue_with_cfg(state: AgentState):
-        # should_continue обычно синхронная (логика условий)
-        return should_continue(state, cfg)
-
+    # Добавление узлов
     workflow.add_node("preprocess", preprocess_with_cfg)
     workflow.add_node("agent", agent_with_cfg)
     workflow.add_node("tools", tools_node)
-    workflow.add_node('instructor', instruct_with_cfg)
+    workflow.add_node("instructor", instruct_with_cfg)
 
+    # Линейные переходы
     workflow.add_edge(START, "preprocess")
     workflow.add_edge("preprocess", "agent")
 
-    use_instructor = cfg.run.get('use_instructor', True) if cfg and hasattr(cfg, 'run') else True
+    # Настройка условных переходов
+    use_instructor = cfg.run.get('use_instructor', True)
+
+    # ИСПРАВЛЕНИЕ: Добавляем поддержку обоих вариантов завершения
+    # LangGraph часто возвращает именно "__end__"
+    conditional_mapping = {
+        "tools": "tools",
+        "end": END,
+        "__end__": END  # Добавлено для устранения KeyError
+    }
 
     if use_instructor:
-        workflow.add_conditional_edges("agent", should_continue_with_cfg, {
-            "tools": "tools",
-            'instructor': 'instructor',
-            "__end__": END
-        })
-        workflow.add_edge("tools", "agent")
-        workflow.add_edge('instructor', END)
+        conditional_mapping["instructor"] = "instructor"
     else:
-        workflow.add_conditional_edges("agent", should_continue_with_cfg, {
-            "tools": "tools",
-            "__end__": END
-        })
-        workflow.add_edge("tools", "agent")
+        # Перенаправляем на выход, если инструктор отключен
+        conditional_mapping["instructor"] = END
 
-    memory = MemorySaver()
-    return workflow.compile(checkpointer=memory)
+    workflow.add_conditional_edges(
+        "agent",
+        # Обертка для логирования (опционально, поможет отловить что именно возвращает функция)
+        lambda state: should_continue(state, cfg),
+        conditional_mapping
+    )
+
+    # Обратные петли и завершение
+    workflow.add_edge("tools", "agent")
+
+    if use_instructor:
+        workflow.add_edge("instructor", END)
+
+    return workflow.compile(checkpointer=checkpointer)

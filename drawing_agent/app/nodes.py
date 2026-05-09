@@ -76,10 +76,10 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
         start_on="human"
     )
 
-    # Собираем финальный системный промпт
+    # Начинаем список с системного сообщения
     final_messages = [SystemMessage(content=sys_content + format_instruction)]
 
-    # Прикрепляем изображение к последнему HumanMessage (для Vision-способностей)
+    # Ищем индекс последнего сообщения от пользователя во всей истории
     last_human_idx = -1
     for i, msg in enumerate(trimmed_messages):
         if isinstance(msg, HumanMessage):
@@ -87,16 +87,19 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
 
     for i, msg in enumerate(trimmed_messages):
         if i == last_human_idx and state.get("current_drawing"):
+            # Модифицируем только ПОСЛЕДНИЙ HumanMessage, добавляя картинку (Vision)
             clean_b64 = state["current_drawing"].split('base64,')[-1]
             text_content = msg.content if isinstance(msg.content, str) else "Проанализируй чертеж."
-            new_msg = HumanMessage(
+
+            multimodal_msg = HumanMessage(
                 content=[
                     {"type": "text", "text": text_content},
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{clean_b64}"}}
                 ]
             )
-            final_messages.append(new_msg)
+            final_messages.append(multimodal_msg)
         else:
+            # Все остальные сообщения (AI, Tool, предыдущие Human) добавляем как есть
             final_messages.append(msg)
 
     # 4. Вызов LLM

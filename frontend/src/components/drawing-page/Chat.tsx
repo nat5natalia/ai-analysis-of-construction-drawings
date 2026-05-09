@@ -103,7 +103,7 @@ const Chat = () => {
                     disabled={isThinking}
                 />
                 <Button
-                    disabled={!question ? true : false}
+                    disabled={!question || isThinking}
                     type="submit"
                     content="Спросить"
                     className="w-2/10 bg-blue-100 disabled:cursor-not-allowed"

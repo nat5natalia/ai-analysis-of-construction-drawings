@@ -42,6 +42,7 @@ services:
       - ./persistent_storage:/app/data
       - ./drawing_agent/models:/app/models
       - ./hf_cache:/app/.cache/huggingface
+      - ./hf_cache:/app/.cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -59,7 +60,7 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017
-      - AGENT_URL=http://drawing_agent:8000/process
+      - AGENT_URL=http://drawing_agent:8000
       - DATASET_PATH=/app/dataset
       - PYTHONPATH=/app
     volumes:
@@ -84,7 +85,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017
       - DATASET_PATH=/app/dataset
-      - AGENT_URL=http://drawing_agent:8000/process
+      - AGENT_URL=http://drawing_agent:8000
       - PYTHONPATH=/app
     volumes:
       - ./dataset:/app/dataset

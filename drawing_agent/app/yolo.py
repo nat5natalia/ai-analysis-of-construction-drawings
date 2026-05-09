@@ -1,76 +1,133 @@
-import cv2 
-import numpy as np 
-from PIL import Image 
-from typing import List, Dict, Any 
-import base64 
-from io import BytesIO 
-import logging 
-logger = logging.getLogger(__name__)
+import cv2
+import numpy as np
+import base64
+import logging
+import threading
+import os  # Добавлено для проверки путей
+from io import BytesIO
+from typing import List, Dict, Any, Optional
 from ultralytics import YOLO
+
+logger = logging.getLogger(__name__)
+
+_yolo_lock = threading.Lock()
+_yolo_instance: Optional['YOLODetector'] = None
 
 
 class YOLODetector:
-    def __init__(self, model_name: str='yolov8n.pt'):
-        self.model_name = model_name 
-        self.model = None 
+    # ИСПРАВЛЕНО: Указываем абсолютный путь внутри контейнера
+    def __init__(self, model_path: str = '/app/models/best.pt'):
+        """
+        Инициализация детектора.
+        :param model_path: Путь к весам YOLO внутри Docker (/app/models/best.pt)
+        """
+        self.model_path = model_path
+        self.model = None
         self._load_model()
+
     def _load_model(self):
         try:
-            self.model = YOLO(self.model_name)
-            logger.info(f'YOLO загружен')
+            # Проверяем, существует ли файл, прежде чем загружать
+            if not os.path.exists(self.model_path):
+                logger.error(f"Файл весов не найден по пути: {self.model_path}")
+                raise FileNotFoundError(f"No such file: {self.model_path}")
+
+            # Загрузка модели
+            self.model = YOLO(self.model_path)
+            logger.info(f"YOLO модель успешно загружена из {self.model_path}")
         except Exception as e:
-            logger.error(f'Ошибка {e}')
-    def detect_from_base64(self, image_base64: str)->List[Dict]:
+            logger.error(f"Критическая ошибка при загрузке YOLO: {e}")
+
+            # Fallback к базовой модели, если основная не найдена
+            fallback_model = 'yolov8n.pt'
+            if self.model_path != fallback_model:
+                logger.warning(f"Попытка загрузки базовой модели {fallback_model}...")
+                try:
+                    # В Docker это может не сработать без интернета или прав,
+                    # но как последний шанс оставляем
+                    self.model = YOLO(fallback_model)
+                except Exception as fe:
+                    logger.error(f"Не удалось загрузить даже fallback модель: {fe}")
+
+    def _prepare_image(self, image_base64: str) -> Optional[np.ndarray]:
+        """Конвертирует base64 строку в OpenCV формат."""
+        try:
+            if "," in image_base64:
+                image_base64 = image_base64.split(",")[1]
+
+            image_data = base64.b64decode(image_base64)
+            nparr = np.frombuffer(image_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            return img
+        except Exception as e:
+            logger.error(f"Ошибка декодирования изображения: {e}")
+            return None
+
+    def detect(self, image: np.ndarray, conf_threshold: float = 0.25) -> List[Dict[str, Any]]:
+        """Запуск инференса на изображении."""
         if self.model is None:
+            logger.error("Инференс невозможен: модель не загружена")
             return []
-        image_data = base64.b64decode(image_base64)
-        nparr = np.frombuffer(image_data,np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        return self.detect(img)
-    def detect(self, image: np.ndarray)->List[Dict]:
-        results = self.model(image)
+
+        results = self.model.predict(image, conf=conf_threshold, verbose=False)
         detected = []
+
         for result in results:
-            if result.boxes is not None:
-                for box in result.boxes:
-                    obj = {
-                        'class': result.names[int(box.cls[0])],
-                        'confidence':float(box.conf[0]),
-                        'bbox':box.xyxy[0].tolist(),
-                        'center': [
-                            (box.xyxy[0][0] + box.xyxy[0][2]) / 2,
-                            (box.xyxy[0][1] + box.xyxy[0][3])/2
-                        ]
-                    }
-                    detected.append(obj)
-        return detected 
-    def detect_drawing_elements(self, image_base64: str)-> Dict:
-        objects = self.detect_from_base64(image_base64)
-        result = {
+            boxes = result.boxes
+            for box in boxes:
+                xyxy = box.xyxy[0].tolist()
+                obj = {
+                    'class': result.names[int(box.cls[0])],
+                    'confidence': float(box.conf[0]),
+                    'bbox': xyxy,
+                    'center': [
+                        (xyxy[0] + xyxy[2]) / 2,
+                        (xyxy[1] + xyxy[3]) / 2
+                    ],
+                    'size': [
+                        xyxy[2] - xyxy[0],
+                        xyxy[3] - xyxy[1]
+                    ]
+                }
+                detected.append(obj)
+        return detected
+
+    def detect_drawing_elements(self, image_base64: str) -> Dict[str, List[Dict[str, Any]]]:
+        """Специализированный метод для чертежей."""
+        img = self._prepare_image(image_base64)
+        if img is None:
+            return {"error": "Failed to decode image"}
+
+        objects = self.detect(img)
+        summary = {
             "dimension_lines": [],
             "text_blocks": [],
             "tables": [],
             "symbols": [],
             "other": []
         }
+
         for obj in objects:
-            class_name = obj["class"].lower()
-            if "line" in class_name or "arrow" in class_name:
-                result["dimension_lines"].append(obj)
-            elif "table" in class_name or "grid" in class_name:
-                result["tables"].append(obj)
-            elif "text" in class_name or "character" in class_name:
-                result["text_blocks"].append(obj)
-            elif "symbol" in class_name:
-                result["symbols"].append(obj)
+            cls = obj["class"].lower()
+            if any(k in cls for k in ["line", "dimension", "arrow"]):
+                summary["dimension_lines"].append(obj)
+            elif any(k in cls for k in ["table", "spec", "grid"]):
+                summary["tables"].append(obj)
+            elif any(k in cls for k in ["text", "stamp", "label"]):
+                summary["text_blocks"].append(obj)
+            elif any(k in cls for k in ["symbol", "circle", "hole", "mark"]):
+                summary["symbols"].append(obj)
             else:
-                result["other"].append(obj)
-        return result 
+                summary["other"].append(obj)
 
-_yolo = None
+        return summary
 
-def get_yolo():
-    global _yolo
-    if _yolo is None:
-        _yolo = YOLODetector()
-    return _yolo
+
+# ИСПРАВЛЕНО: Здесь тоже меняем дефолтный путь
+def get_yolo(model_path: str = '/app/models/best.pt') -> YOLODetector:
+    """Глобальная функция доступа (Thread-safe Singleton)."""
+    global _yolo_instance
+    with _yolo_lock:
+        if _yolo_instance is None:
+            _yolo_instance = YOLODetector(model_path=model_path)
+    return _yolo_instance

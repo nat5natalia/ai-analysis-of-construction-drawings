@@ -3,7 +3,7 @@ import uuid
 import httpx
 import logging
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +11,6 @@ from pydantic import BaseModel
 
 # Импортируем менеджер и функции-хелперы из db.py
 from db import db_manager, save_drawing, get_drawing, delete_drawing
-# Убедитесь, что путь импорта соответствует структуре проекта
 from celery_worker.worker import process_drawing as celery_process_task
 
 # Настройка логирования
@@ -159,17 +158,32 @@ async def delete_drawing_by_id(drawing_id: str):
 # --- 4. Прокси и Статус ---
 
 @app.get("/api/search")
-async def search_drawings(q: str, limit: int = 10):
+async def search_drawings(q: str, limit: int = 10, drawing_id: Optional[str] = None):
+    """
+    Поиск по векторной базе.
+    Если передан drawing_id, ищем только в этом чертеже.
+    """
     async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            # Убедитесь, что у агента есть эндпоинт /search
-            response = await client.post(f"{AGENT_URL}/search", json={"query": q, "limit": limit})
+            # 1. Готовим тело запроса для Агента
+            payload = {
+                "query": q,
+                "limit": limit
+            }
+
+            # 2. Если ищем в конкретном чертеже, нужно достать его путь из БД
+            if drawing_id:
+                meta = await get_drawing(drawing_id)
+                if meta:
+                    payload["path"] = meta.get("file_path")
+
+            response = await client.post(f"{AGENT_URL}/search", json=payload)
             response.raise_for_status()
+
             return response.json()
         except Exception as e:
             logger.error(f"Agent search error: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка Агента: {str(e)}")
-
 
 @app.get("/api/ask/status/{drawing_id}")
 async def get_ask_status(drawing_id: str):

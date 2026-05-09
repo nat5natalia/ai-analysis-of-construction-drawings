@@ -6,6 +6,7 @@ import image from '../../images/no image.jfif';
 import ErrorState from '../ErrorState';
 import LoadingState from '../LoadingState';
 import { formatDate } from '../../utils/formatDate';
+import rehypeSanitize from 'rehype-sanitize';
 
 const Content = () => {
     const params = useParams<{ id: string }>();
@@ -48,7 +49,10 @@ const Content = () => {
                     <span className="text-gray-500 shrink-0">Описание:</span>
 
                     <div className="wrap-break-word lg:overflow-y-auto pr-2">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeSanitize]}
+                        >
                             {data.description}
                         </ReactMarkdown>
                     </div>

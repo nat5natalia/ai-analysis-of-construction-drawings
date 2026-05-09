@@ -1,6 +1,7 @@
 import { type FC } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 
 interface IMessagesContainer {
     messages: { type: 'answer' | 'question'; body: string }[];
@@ -28,11 +29,12 @@ const MessagesContainer: FC<IMessagesContainer> = ({ messages, isLoading }) => {
                                 }
                             `}
                         >
-                            {msg.type != 'answer' ? (
+                            {msg.type !== 'answer' ? (
                                 msg.body
                             ) : (
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm]}
+                                    rehypePlugins={[rehypeSanitize]}
                                     components={{
                                         table: ({ children }) => (
                                             <div className="overflow-x-auto w-full">

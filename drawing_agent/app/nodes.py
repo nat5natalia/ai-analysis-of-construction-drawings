@@ -13,6 +13,10 @@ from langchain_core.messages import (
 from app.state import AgentState
 from app.llm import get_llm
 from app.tools import ALL_TOOLS
+
+from app.instructor.extractor import run_instructor
+from app.instructor.schemas import DrawingAnalysis
+
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
@@ -145,33 +149,27 @@ async def tools_node(state: AgentState) -> AgentState:
 
 
 async def instructor_node(state: AgentState, cfg: DictConfig) -> AgentState:
-    """Финальное структурирование ответа в схему Pydantic (если включено)."""
     if not cfg.run.get('use_instructor', False):
         return state
 
     try:
-        from app.instructor.extractor import run_instructor
-        from app.instructor.schemas import DrawingAnalysis
-
-        # Получаем последний ответ от AIMessage
-        last_ai_msg = ""
-        for m in reversed(state["messages"]):
-            if isinstance(m, AIMessage):
-                last_ai_msg = m.content
-                break
-
-        # Если ответ уже есть, превращаем его в JSON-структуру
         result = await run_instructor(state, DrawingAnalysis)
+
         return {"final_output": result.dict() if result else None}
     except Exception as e:
         logger.error(f"Instructor Error: {e}")
-        return state
+        return {"final_output": None}
 
 
 def should_continue(state: AgentState, cfg: DictConfig):
     last_msg = state["messages"][-1]
+
+    # Если агент хочет использовать инструменты — идем в узел tools
     if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
         return "tools"
+
+    # Если инструментов больше нет и включен инструктор — идем в инструктор
     if cfg.run.get('use_instructor', False):
         return "instructor"
+
     return "__end__"

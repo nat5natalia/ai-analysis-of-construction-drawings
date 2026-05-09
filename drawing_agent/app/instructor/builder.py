@@ -3,7 +3,7 @@ def build_instructor_input(state):
     ocr = state.get("ocr_text", "")
     context = state.get("context", "")
     page = state.get("page", "unknown")
-
+    heavy = state.get("heavy_analysis", "")
     messages = state.get("messages", [])
 
     last_message = ""
@@ -28,7 +28,8 @@ def build_instructor_input(state):
 
 [OCR]
 {ocr}
-
+[ГЛУБОКИЙ ТЕКСТОВЫЙ ОТЧЕТ]
+{heavy}
 [Контекст]
 {context}
 

@@ -4,7 +4,6 @@ from typing import List, Union
 
 class EmbeddingGenerator:
     def __init__(self, model_name='all-MiniLM-L6-v2'):
-        # Используем ту же модель, что и в DrawingKnowledgeManager
         self.model = SentenceTransformer(model_name)
 
     def generate(self, text: str) -> List[float]:

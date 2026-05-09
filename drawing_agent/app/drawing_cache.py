@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
+from rag.embeddings import EmbeddingGenerator
 from .loader import load_drawing
 from .preprocess import preprocess_image
 
@@ -18,9 +18,6 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
 class DrawingKnowledgeManager:
     def __init__(self, vector_db, cache_dir: str = "cache/drawings"):
-        """
-        Управляет знаниями о чертежах: загрузка, кэширование и RAG.
-        """
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.vector_db = vector_db
@@ -31,18 +28,15 @@ class DrawingKnowledgeManager:
     @property
     def embed_model(self):
         if self._embed_model is None:
-            logger.info(f"Загрузка модели эмбеддингов {EMBEDDING_MODEL}...")
-            # В Docker это может занять время, права на .cache должны быть настроены
-            self._embed_model = SentenceTransformer(EMBEDDING_MODEL)
+            logger.info(f"Инициализация EmbeddingGenerator...")
+            self._embed_model = EmbeddingGenerator(model_name=EMBEDDING_MODEL)
         return self._embed_model
 
     def _get_drawing_hash(self, path: str, page: int) -> str:
-        """Создает стабильный MD5 хеш для пары файл:страница."""
         identifier = f"{os.path.abspath(path)}:{page}"
         return hashlib.md5(identifier.encode()).hexdigest()
 
     def _split_text(self, text: str, chunk_size: int = 600, overlap: int = 100) -> List[str]:
-        """Разбивает длинный текст на перекрывающиеся чанки для лучшего поиска."""
         if not text:
             return []
         chunks = []
@@ -51,7 +45,6 @@ class DrawingKnowledgeManager:
         return chunks
 
     def load_drawing_and_cache(self, path: str, page: int = 0) -> Dict[str, Any]:
-        """Загружает чертеж и кэширует его обработанную версию."""
         hash_id = self._get_drawing_hash(path, page)
         static_cache_path = self.cache_dir / f"{hash_id}_static.json"
 
@@ -92,7 +85,6 @@ class DrawingKnowledgeManager:
         return cache_data
 
     def initialize_static_knowledge(self, path: str, page: int, static_data: Dict[str, Any]):
-        """Разбивает OCR данные на чанки и сохраняет в VectorDB."""
         hash_id = self._get_drawing_hash(path, page)
 
         if hash_id in self._indexed_drawings:
@@ -102,44 +94,36 @@ class DrawingKnowledgeManager:
         if not ocr_text or len(ocr_text.strip()) < 10:
             return
 
-        # РАЗБИВАЕМ ТЕКСТ НА ЧАНКИ (Критично для RAG)
         chunks = self._split_text(ocr_text)
 
         for i, chunk in enumerate(chunks):
             content = f"[OCR Chunk {i}] {chunk}"
-            embedding = self.embed_model.encode(content).tolist()
-            # Передаем drawing_id в обновленный метод add
+            embedding = self.embed_model.generate(content)
             self.vector_db.add(content, embedding, drawing_id=hash_id)
 
         self._indexed_drawings.add(hash_id)
-        logger.info(f"Чертеж {hash_id} проиндексирован: {len(chunks)} фрагментов.")
+        logger.info(f"Чертеж {hash_id} проиндексирован.")
 
     def add_interaction_to_index(self, path: str, page: int, question: str, answer: str):
-        """Сохраняет историю диалога в базу для памяти в рамках чертежа."""
         if not answer: return
 
         hash_id = self._get_drawing_hash(path, page)
         interaction_text = f"Previous Q: {question} | Previous A: {answer}"
 
-        embedding = self.embed_model.encode(interaction_text).tolist()
+        embedding = self.embed_model.generate(interaction_text)
         self.vector_db.add(interaction_text, embedding, drawing_id=hash_id)
 
-        # Лог сессии для отладки
         log_path = self.cache_dir / f"{hash_id}_sessions.jsonl"
         with open(log_path, "a", encoding="utf-8") as f:
-            log_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "q": question,
-                "a": answer
-            }
+            log_entry = {"timestamp": datetime.now().isoformat(), "q": question, "a": answer}
             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
     def retrieve_context(self, path: str, page: int, query: str, top_k: int = 5) -> str:
         """Поиск контекста ТОЛЬКО для текущего чертежа."""
         hash_id = self._get_drawing_hash(path, page)
-        query_embedding = self.embed_model.encode(query).tolist()
 
-        # Используем фильтрацию по drawing_id внутри VectorDB
+        query_embedding = self.embed_model.generate(query)
+
         search_results = self.vector_db.search(query_embedding, drawing_id=hash_id, k=top_k)
 
         if not search_results:

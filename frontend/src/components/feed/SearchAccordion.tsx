@@ -70,7 +70,7 @@ const SearchAccordion = () => {
                 <div className="absolute top-full left-0 w-full bg-blue-100 shadow-lg rounded-b-2xl z-50 overflow-x-auto">
                     <div className="flex flex-row gap-2 p-2 h-50">
                         {isFetching && <LoadingState />}
-                        {results.length === 0 && !isFetching && (
+                        {results.length === 0 && !isFetching && !isError && (
                             <div className="h-full w-full flex justify-center items-center">
                                 <p className=" font-medium text-2xl">
                                     Чертежи не найдены

@@ -131,3 +131,24 @@ class DrawingKnowledgeManager:
 
         relevant_fragments = [text for text, score in search_results]
         return "\n\n---\n\n".join(relevant_fragments)
+
+    def save_heavy_analysis(self, path: str, page: int, analysis_text: str):
+        hash_id = self._get_drawing_hash(path, page)
+        cache_path = self.cache_dir / f"{hash_id}_heavy.txt"
+
+        # Убедимся, что папка существует (на случай очистки)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(cache_path, "w", encoding="utf-8") as f:
+            f.write(analysis_text)
+        logger.info(f"Тяжелый анализ успешно кэширован: {hash_id}")
+
+    def get_heavy_analysis(self, path: str, page: int) -> Optional[str]:
+        hash_id = self._get_drawing_hash(path, page)
+        cache_path = self.cache_dir / f"{hash_id}_heavy.txt"
+
+        if cache_path.exists():
+            logger.info(f"Тяжелый анализ загружен из кэша: {hash_id}")
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return f.read()
+        return None

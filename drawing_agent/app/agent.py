@@ -66,7 +66,6 @@ class DrawingAgent:
 
         logger.info("Запуск ПОСЛЕДОВАТЕЛЬНОГО анализа чертежа...")
 
-        # Выполняем строго по очереди, чтобы не перегрузить CPU/RAM
         yolo_res = await loop.run_in_executor(None, detect_yolo_objects.invoke, {})
         gc.collect()  # Очистка после YOLO
 
@@ -115,6 +114,7 @@ class DrawingAgent:
 
             config = {"configurable": {"thread_id": thread_id}}
 
+            # Проверка оперативного кэша (LRU) на идентичный вопрос
             cached = self.cache.get(thread_id, path, question)
             if cached:
                 log_cache_operation("get", f"{thread_id}:{question}", True)
@@ -122,12 +122,34 @@ class DrawingAgent:
 
             try:
                 loop = asyncio.get_running_loop()
+
+                # Загружаем базовые данные чертежа (картинка, метаданные)
                 drawing_data = await loop.run_in_executor(
                     None, self.drawing_knowledge.load_drawing_and_cache, path, page
                 )
 
-                # Теперь это безопасно, так как мы под lock и вызываем всё последовательно
-                heavy_results = await self._run_heavy_operations(drawing_data["image_base64"])
+                heavy_analysis_text = await loop.run_in_executor(
+                    None, self.drawing_knowledge.get_heavy_analysis, path, page
+                )
+
+                if not heavy_analysis_text:
+                    logger.info(f"Кэш анализа не найден. Запуск нейросетей для {path}...")
+                    heavy_results = await self._run_heavy_operations(drawing_data["image_base64"])
+
+                    heavy_analysis_text = (
+                        f"--- РЕЗУЛЬТАТЫ ГЛУБОКОГО АНАЛИЗА ---\n"
+                        f"ДЕТЕКЦИЯ ОБЪЕКТОВ (YOLO):\n{heavy_results['yolo']}\n\n"
+                        f"ГЕОМЕТРИЯ (OpenCV):\n{heavy_results['geometry']}\n\n"
+                        f"ОТВЕРСТИЯ:\n{heavy_results['holes']}\n\n"
+                        f"ТАБЛИЦЫ:\n{heavy_results['tables']}\n\n"
+                        f"ПОЛНЫЙ ТЕКСТ:\n{heavy_results['full_ocr']}"
+                    )
+
+                    await loop.run_in_executor(
+                        None, self.drawing_knowledge.save_heavy_analysis, path, page, heavy_analysis_text
+                    )
+                else:
+                    logger.info(f"Используется готовый анализ из кэша (Fast Mode) для {path}")
 
                 self.drawing_knowledge.initialize_static_knowledge(path, page, drawing_data)
                 rag_context = self.drawing_knowledge.retrieve_context(path, page, question)
@@ -138,20 +160,15 @@ class DrawingAgent:
                     "drawing_width": drawing_data["width"],
                     "drawing_height": drawing_data["height"],
                     "ocr_text": drawing_data.get("ocr_text", ""),
-                    "heavy_analysis": (
-                        f"--- РЕЗУЛЬТАТЫ ГЛУБОКОГО АНАЛИЗА ---\n"
-                        f"ДЕТЕКЦИЯ ОБЪЕКТОВ (YOLO):\n{heavy_results['yolo']}\n\n"
-                        f"ГЕОМЕТРИЯ (OpenCV):\n{heavy_results['geometry']}\n\n"
-                        f"ОТВЕРСТИЯ:\n{heavy_results['holes']}\n\n"
-                        f"ТАБЛИЦЫ:\n{heavy_results['tables']}\n\n"
-                        f"ПОЛНЫЙ ТЕКСТ:\n{heavy_results['full_ocr']}"
-                    ),
+                    "heavy_analysis": heavy_analysis_text,
                     "context": rag_context,
-                    "analysis_complete": False
+                    "analysis_complete": True  # Устанавливаем True, так как пре-анализ готов
                 }
 
-                result = await self.graph.ainvoke(initial_state, config=config)
+                result = await self.graph.ainvoke(initial_state, config={"configurable": {"thread_id": thread_id}})
+
                 answer = self._extract_answer(result)
+                final_output = result.get("final_output")
 
                 if answer:
                     self.drawing_knowledge.add_interaction_to_index(path, page, question, answer)
@@ -161,7 +178,15 @@ class DrawingAgent:
                 self.stats["total_time"] += response_time
                 log_question_answer(question, answer, True, response_time)
 
-                final_response = {"success": True, "answer": answer, "error": None}
+                final_response = {
+                    "success": True,
+                    "answer": answer,
+                    "data": final_output,
+                    "error": None,
+                    "execution_time": round(response_time, 2)
+                }
+
+                # Сохраняем в оперативный кэш
                 self.cache.set(thread_id, path, question, final_response)
                 return final_response
 
@@ -169,6 +194,7 @@ class DrawingAgent:
                 logger.error(f"Agent execution error: {e}", exc_info=True)
                 self.stats["errors"] += 1
                 return {"success": False, "answer": None, "error": str(e)}
+
     def _extract_answer(self, result: dict) -> str:
         if not result or "messages" not in result: return ""
         messages = result.get("messages", [])

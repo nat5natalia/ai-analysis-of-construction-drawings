@@ -22,10 +22,15 @@ USER appuser
 ENV HOME=/app
 ENV HF_HOME=/app/.cache
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache
+ENV YOLO_CONFIG_DIR=/tmp/Ultralytics
+ENV PYTHONPATH=/app
+ENV EASYOCR_MODULE_PATH=/app/.EasyOCR
+
+# ВНИМАНИЕ: Скачивание моделей ОТКЛЮЧЕНО для локальной разработки
+# Модели должны быть предварительно скачаны и примонтированы через volume
 # RUN python -c "import easyocr; easyocr.Reader(['ru', 'en'])" && \
-#    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+#     python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 EXPOSE 8000
-ENV PYTHONPATH=/app
 
 CMD ["python", "main.py"]

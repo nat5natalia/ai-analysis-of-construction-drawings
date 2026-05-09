@@ -28,13 +28,20 @@ services:
       context: .
       dockerfile: drawing_agent/Dockerfile
     container_name: drawing_agent
+    ports:
+      - "8001:8000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - PYTHONPATH=/app
       - DATASET_PATH=/app/dataset
+      - DATA_DIR=/app/data
+      - HF_HOME=/app/.cache/huggingface
     volumes:
       - ./dataset:/app/dataset
       - C:/Users/s0910/.EasyOCR:/root/.EasyOCR
+      - ./persistent_storage:/app/data
+      - ./drawing_agent/models:/app/models
+      - ./hf_cache:/app/.cache/huggingface
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -48,6 +55,7 @@ services:
       context: .
       dockerfile: celery_worker/Dockerfile
     container_name: drawing_worker
+    command: celery -A worker worker --loglevel=info
     environment:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017

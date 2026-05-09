@@ -10,6 +10,8 @@ python-multipart
 langchain>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.50
+langgraph-checkpoint-sqlite>=2.0.0
+aiosqlite>=0.20.0
 openai>=1.50.0
 pydantic>=2.9.0
 

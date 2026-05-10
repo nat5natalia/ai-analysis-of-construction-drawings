@@ -9,7 +9,6 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Импортируем менеджер и функции-хелперы из db.py
 from db import db_manager, save_drawing, get_drawing, delete_drawing
 from celery_worker.worker import process_drawing as celery_process_task
 
@@ -23,12 +22,9 @@ app = FastAPI(
     version="1.2.1"
 )
 
-# --- ИСПРАВЛЕНИЕ: Имя хоста должно совпадать с docker-compose ---
-# В логах воркера было 'drawing_agent' (с подчеркиванием)
 AGENT_URL = os.getenv("AGENT_URL", "http://drawing_agent:8000")
 UPLOAD_DIR = os.getenv("DATASET_PATH", "uploads")
 
-# Создаем папку для загрузок, если её нет
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app.add_middleware(
@@ -91,6 +87,7 @@ async def upload_drawing(file: UploadFile = File(...)):
         "status": "processing",
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "file_path": save_path,
+        "messages": [],
         "description": None,
     }
 
@@ -144,15 +141,23 @@ async def delete_drawing_by_id(drawing_id: str):
     if not meta:
         raise HTTPException(status_code=404, detail="Чертеж не найден")
 
+    # 1. Удаляем физический файл
     file_path = meta.get("file_path")
     if file_path and os.path.exists(file_path):
-        try:
-            os.remove(file_path)
-        except Exception as e:
-            logger.warning(f"Could not delete file {file_path}: {e}")
+        os.remove(file_path)
 
-    success = await delete_drawing(drawing_id)
-    return {"message": "Удалено успешно"}
+    # 2. Очищаем кэш в векторной базе (Агенте)
+    async with httpx.AsyncClient() as client:
+        try:
+            # Отправляем запрос агенту, чтобы он удалил индексы этого файла
+            await client.delete(f"{AGENT_URL}/cache/{drawing_id}")
+        except Exception as e:
+            logger.warning(f"Could not clear agent cache: {e}")
+
+    # 3. Удаляем запись из MongoDB (вместе с историей messages)
+    await delete_drawing(drawing_id)
+
+    return {"message": "Всё удалено: файл, история и кэш"}
 
 
 # --- 4. Прокси и Статус ---

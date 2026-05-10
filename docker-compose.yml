@@ -43,6 +43,9 @@ services:
       - ./drawing_agent/models:/app/models
       - ./hf_cache:/app/.cache/huggingface
       - ./hf_cache:/app/.cache
+      - ./agent_cache:/app/cache/drawings
+      - ./checkpoints_data:/app/data
+      - ./easyocr_models:/root/.EasyOCR/model
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -56,7 +59,7 @@ services:
       context: .
       dockerfile: celery_worker/Dockerfile
     container_name: drawing_worker
-    command: celery -A worker worker --loglevel=info
+    command: celery -A worker worker --loglevel=info --concurrency=1
     environment:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017

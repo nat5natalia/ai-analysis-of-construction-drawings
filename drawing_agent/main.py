@@ -122,8 +122,6 @@ async def pre_analyze_drawing(req: PreAnalyzeRequest):
     logger.info(f"Background pre-analysis started for: {path}")
 
     try:
-        # Теперь метод внутри использует async with self.lock,
-        # так что вызов безопасен и последователен
         result = await agent_instance.pre_analyze(path=path, page=req.page)
 
         if result.get("success"):

@@ -42,21 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-import time
-import uuid as uuid_lib
-
-@app.middleware("http")
-async def log_requests(request, call_next):
-    request_id = str(uuid_lib.uuid4())
-    # Сохраняем в контексте запроса (опционально)
-    request.state.request_id = request_id
-    start = time.time()
-    logger.info(f"[{request_id}] --> {request.method} {request.url.path}")
-    response = await call_next(request)
-    elapsed = time.time() - start
-    logger.info(f"[{request_id}] <-- {response.status_code} ({elapsed:.3f}s)")
-    response.headers["X-Request-ID"] = request_id
-    return response
 
 class AskRequest(BaseModel):
     question: str

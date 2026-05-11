@@ -110,7 +110,7 @@ def test_similar():
             resp_similar = await client.get(f"/api/similar/{id1}", params={"limit": 5})
             assert resp_similar.status_code == 200
             data = resp_similar.json()
-            assert "source_id" in data
+            assert "drawing_id" in data
             assert "similar" in data
             assert isinstance(data["similar"], list)
     run_async(_test())

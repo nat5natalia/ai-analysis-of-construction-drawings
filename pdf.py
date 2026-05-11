@@ -8,16 +8,13 @@ def pdf_to_images_base64(file_path: str) -> list[str]:
     Конвертирует PDF в список base64-изображений (по одному на страницу).
     Base64 — это текстовое представление картинки, которое можно отправить в LLM.
     """
-    doc = fitz.open(file_path)
     images = []
-
-    for page in doc:
-        # Рендерим страницу в изображение (150 dpi — оптимально для LLM)
-        pix = page.get_pixmap(dpi=150)
-        img_bytes = pix.tobytes("png")
-        images.append(base64.b64encode(img_bytes).decode())
-
-    doc.close()
+    with fitz.open(file_path) as doc:
+        for page in doc:
+            # Рендерим страницу в изображение (150 dpi — оптимально для LLM)
+            pix = page.get_pixmap(dpi=150)
+            img_bytes = pix.tobytes("png")
+            images.append(base64.b64encode(img_bytes).decode())
     return images
 
 

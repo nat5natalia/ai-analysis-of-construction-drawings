@@ -1,0 +1,6 @@
+provider: custom
+model: "qwen3.6-35b-32k"
+base_url: "https://llm.ai-expert-opinion.ru/v1"
+temperature: 0.1
+max_tokens: 2000
+top_p: 0.9

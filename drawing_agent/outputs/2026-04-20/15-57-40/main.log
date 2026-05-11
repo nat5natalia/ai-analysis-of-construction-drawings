@@ -1,0 +1,2 @@
+[2026-04-20 15:58:26,419][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-04-20 15:58:59,751][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"

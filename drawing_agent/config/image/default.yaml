@@ -1,0 +1,9 @@
+max_size_px: 8000
+quality: 85
+scale: 0.1
+supported_formats:
+  - .png
+  - .jpg
+  - .jpeg
+  - .tiff
+  - .pdf

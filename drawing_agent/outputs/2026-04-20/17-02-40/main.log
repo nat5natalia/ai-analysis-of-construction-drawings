@@ -1,0 +1,2 @@
+[2026-04-20 17:02:46,619][app.nodes][INFO] - Чертеж загружен: 4000x1413
+[2026-04-20 17:03:26,716][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"

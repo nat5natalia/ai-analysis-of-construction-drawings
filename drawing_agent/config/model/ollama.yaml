@@ -1,0 +1,7 @@
+provider: custom
+name: "qwen3.6-35b-32k"
+base_url: "https://llm.ai-expert-opinion.ru/v1"
+api_key: "sk-bc9a3a95e190fc9cf5525a4726b16658"
+temperature: 0.1
+max_tokens: 2000
+top_p: 0.9

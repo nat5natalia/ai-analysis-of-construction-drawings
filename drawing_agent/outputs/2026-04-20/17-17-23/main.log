@@ -1,0 +1,13 @@
+[2026-04-20 17:17:32,506][app.nodes][INFO] - Чертеж загружен: 4000x1413
+[2026-04-20 17:18:07,545][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-04-20 17:18:07,557][app.nodes][INFO] - Вызов инструмента extract_text
+[2026-04-20 17:18:07,561][easyocr.easyocr][WARNING] - Using CPU. Note: This module is much faster with a GPU.
+[2026-04-20 17:18:07,608][easyocr.easyocr][WARNING] - Downloading detection model, please wait. This may take several minutes depending upon your network connection.
+[2026-04-20 17:18:16,356][easyocr.easyocr][INFO] - Download complete
+[2026-04-20 17:18:16,356][easyocr.easyocr][WARNING] - Downloading recognition model, please wait. This may take several minutes depending upon your network connection.
+[2026-04-20 17:18:31,652][easyocr.easyocr][INFO] - Download complete.
+[2026-04-20 17:19:26,833][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-04-20 17:19:30,215][app.nodes][INFO] - Вызов инструмента extract_dimensions
+[2026-04-20 17:19:30,442][app.nodes][INFO] - Вызов инструмента detect_holes
+[2026-04-20 17:19:30,695][app.nodes][INFO] - Вызов инструмента detect_tables
+[2026-04-20 17:20:24,881][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"

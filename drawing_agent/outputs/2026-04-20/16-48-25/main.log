@@ -1,0 +1,39 @@
+[2026-04-20 16:48:37,631][app.nodes][INFO] - Чертеж загружен: 4000x1413
+[2026-04-20 16:49:21,813][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-04-20 16:49:23,729][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 16:49:23,800][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 16:49:23,868][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 16:49:23,872][app.nodes][ERROR] - Instructor ошибка: <failed_attempts>
+
+<generation number="1">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="2">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="3">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+</failed_attempts>
+
+<last_exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</last_exception>

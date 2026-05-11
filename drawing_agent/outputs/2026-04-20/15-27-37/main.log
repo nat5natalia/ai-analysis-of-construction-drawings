@@ -1,0 +1,8 @@
+[2026-04-20 15:28:34,424][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-04-20 15:28:36,468][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 15:28:36,548][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 15:28:36,620][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 15:45:48,184][httpx][INFO] - HTTP Request: POST https://llm.ai-expert-opinion.ru/v1/chat/completions "HTTP/1.1 200 OK"
+[2026-04-20 15:45:49,439][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 15:45:49,532][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"
+[2026-04-20 15:45:49,605][httpx][INFO] - HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 404 Not Found"

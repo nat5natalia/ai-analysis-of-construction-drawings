@@ -1,0 +1,14 @@
+enabled: true
+project_name: Drawing_Agent_Project
+tags:
+  - langgraph
+  - drawing_agent
+  - ocr
+  - opencv
+auto_connect_frameworks:
+  tensorflow: false
+  pytorch: false
+  matplotlib: true
+  cv2: true
+  numpy: true
+  PIL: true

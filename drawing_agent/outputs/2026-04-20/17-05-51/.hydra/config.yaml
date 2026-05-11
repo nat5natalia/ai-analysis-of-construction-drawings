@@ -1,0 +1,51 @@
+model:
+  provider: custom
+  model: qwen3.6-35b-32k
+  base_url: https://llm.ai-expert-opinion.ru/v1
+  temperature: 0.1
+  max_tokens: 2000
+  top_p: 0.9
+agent:
+  wait_time: 30
+  max_retries: 3
+  system_prompt: "Ты — эксперт по анализу технических чертежей.\n\nДОСТУПНЫЕ ИНСТРУМЕНТЫ:\n\
+    - extract_dimensions() — извлекает габаритные размеры\n- detect_holes() — находит\
+    \ отверстия\n- extract_text() — извлекает текст с чертежа\n- detect_tables() —\
+    \ распознает таблицы\n- search_gost(query) — поиск ГОСТов\n- extract_dims(text)\
+    \ — извлекает размеры из текста\n- detect_objects(text) — определяет объекты чертежа\n\
+    \nПРАВИЛА:\n- Всегда используй инструменты для получения данных\n- Не выдумывай\
+    \ размеры и числа\n- Указывай единицы измерения (мм, мкм)\n\nФОРМАТ ОТВЕТА:\n\
+    \ РАЗМЕРЫ:\n- Ширина: XXX мм\n- Высота: XXX мм\n\n ОТВЕРСТИЯ:\n- Количество: X\n\
+    - Диаметр: XX мм"
+image:
+  max_size_px: 8000
+  quality: 85
+  scale: 0.1
+  supported_formats:
+  - .png
+  - .jpg
+  - .jpeg
+  - .tiff
+  - .pdf
+monitoring:
+  enabled: true
+  project_name: Drawing_Agent_Project
+  tags:
+  - langgraph
+  - drawing_agent
+  - ocr
+  - opencv
+  auto_connect_frameworks:
+    tensorflow: false
+    pytorch: false
+    matplotlib: true
+    cv2: true
+    numpy: true
+    PIL: true
+project_name: Drawing_Agent
+version: 1.0.0
+debug: false
+run:
+  thread_id: drawing_session_1
+  use_instructor: false
+  use_rag: false

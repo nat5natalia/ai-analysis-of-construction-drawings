@@ -1,0 +1,1 @@
+[2026-04-17 12:44:53,021][httpx][INFO] - HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 503 Service Unavailable"

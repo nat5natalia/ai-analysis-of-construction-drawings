@@ -1,0 +1,175 @@
+INFO: Чертеж загружен: 4000×1413
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен
+INFO: Instructor ошибка: <failed_attempts>
+
+<generation number="1">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="2">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="3">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+</failed_attempts>
+
+<last_exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</last_exception>
+INFO: Чертеж загружен: 4000×1413
+INFO: Вопрос: Подробнее расскажи про обьекты на изображении
+INFO: Ответ получен
+INFO: Instructor ошибка: <failed_attempts>
+
+<generation number="1">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="2">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="3">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+</failed_attempts>
+
+<last_exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</last_exception>
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен
+INFO: Вызов инструмента: extract_text
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 1941 символов
+INFO: Чертеж загружен: 4000×1413
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 1685 символов
+INFO: Instructor ошибка: <failed_attempts>
+
+<generation number="1">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="2">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="3">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+</failed_attempts>
+
+<last_exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</last_exception>
+INFO: Чертеж загружен: 4000x1413
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 2063 символов
+INFO: Instructor ошибка: <failed_attempts>
+
+<generation number="1">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="2">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+<generation number="3">
+<exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</exception>
+<completion>
+    None
+</completion>
+</generation>
+
+</failed_attempts>
+
+<last_exception>
+    Error code: 404 - {'error': {'message': 'The free model has been deprecated. Transition to qwen/qwen3.6-plus for continued paid access.', 'code': 404}, 'user_id': 'user_3BvGxDd94rhdi2Z7kiX7uJj1ca6'}
+</last_exception>
+INFO: Чертеж загружен: 4000x1413
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 2233 символов
+INFO: Чертеж загружен: 4000x1413
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 2162 символов
+INFO: Чертеж загружен: 4000x1413
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 484 символов
+INFO: Чертеж загружен: 4000x1413
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 0 символов
+INFO: Вызов инструмента: extract_text
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 0 символов
+INFO: Вызов инструмента: extract_dimensions
+INFO: Вызов инструмента: detect_holes
+INFO: Вызов инструмента: detect_tables
+INFO: Вопрос: Что находится на чертеже?
+INFO: Ответ получен: 1384 символов

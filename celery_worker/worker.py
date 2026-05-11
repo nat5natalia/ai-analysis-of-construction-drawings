@@ -4,6 +4,11 @@ import logging
 import time
 import sys
 from datetime import datetime, timezone
+import redis
+import json
+
+from vector_db import vector_db
+from ds import compute_embedding 
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -77,6 +82,8 @@ def process_drawing(self, drawing_id: str, question: str):
     error_msg = None
 
     try:
+        logger.info("Checking agent availability...")
+        
         if not wait_for_agent():
             logger.error("Проблема с агентом: таймаут ожидания готовности.")
             error_msg = "Agent timeout"
@@ -84,6 +91,7 @@ def process_drawing(self, drawing_id: str, question: str):
             if is_initial_run:
                 requests.post(f"{AGENT_BASE_URL}/pre-analyze",
                               json={"path": file_path, "page": page}, timeout=600).raise_for_status()
+                logger.info("Agent pre-analyze completed")   # <-- добавить
 
             resp = requests.post(f"{AGENT_BASE_URL}/process", json={
                 "path": file_path,
@@ -92,6 +100,7 @@ def process_drawing(self, drawing_id: str, question: str):
                 "page": page
             }, timeout=120)
             resp.raise_for_status()
+            logger.info("Agent process completed")          # <-- добавить
             result = resp.json()
 
             if result.get("success"):
@@ -121,10 +130,41 @@ def process_drawing(self, drawing_id: str, question: str):
         if answer:
             if is_initial_run:
                 update_fields["description"] = answer
-            else:
-                update_op["$push"] = {"messages": {"role": "assistant", "content": answer, "ts": finish_time}}
+            # Добавляем ответ в историю сообщений
+            update_op["$push"] = {"messages": {"role": "assistant", "content": answer, "ts": finish_time}}
 
+            # Вычисляем эмбеддинг и сохраняем в FAISS и БД
+            logger.info("Computing embedding...")
+            embedding = compute_embedding(answer)
+            # embedding = compute_embedding(answer)   # дубликат удалён
+            try:
+                vector_db.add(drawing_id, embedding)
+                update_fields["embedding"] = embedding
+                logger.info(f"Embedding saved for {drawing_id}")   # <-- лог успеха
+            except Exception as e:
+                logger.error(f"FAISS add error: {e}")
+
+        # Применяем обновление в БД
         db["drawings"].update_one({"id": drawing_id}, update_op)
+
+        # Публикуем событие в Redis
+        logger.info("Publishing status update to Redis...")   # <-- лог перед публикацией
+        try:
+            r = redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+            # Чтобы получить актуальный список сообщений, можно перечитать документ
+            updated_doc = db["drawings"].find_one({"id": drawing_id}, {"messages": 1})
+            current_messages = updated_doc.get("messages", []) if updated_doc else []
+            event = {
+                "type": "status_update",
+                "status": "completed",
+                "messages": current_messages,
+                "last_answer": answer,
+                "error": error_msg
+            }
+            r.publish(f"drawing_updates:{drawing_id}", json.dumps(event, default=str))
+            logger.info("Published to Redis channel")   # <-- лог успеха публикации
+        except Exception as e:
+            logger.error(f"Redis publish error: {e}")
 
     finally:
         client.close()

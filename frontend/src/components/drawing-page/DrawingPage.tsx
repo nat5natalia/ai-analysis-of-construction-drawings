@@ -9,7 +9,7 @@ import {
     useGetDrawingQuery,
     useLazyGetDrawingQuery,
 } from '../../store/api/drawings';
-import { ToastContainer } from 'react-toastify';
+import { toast, ToastContainer } from 'react-toastify';
 import Chat from './Chat';
 import { useEffect, useState, type SubmitEventHandler } from 'react';
 import { useDeleteDrawing } from '../../hooks/useDeleteDrawing';
@@ -27,7 +27,6 @@ const DrawingPage = () => {
     const [triggerGetDrawing] = useLazyGetDrawingQuery();
 
     const [askQuestion] = useAskQuestionMutation();
-    const [isThinking, setIsThinking] = useState<boolean>(false);
     const [question, setQuestion] = useState<string>('');
     console.log(data);
 
@@ -66,20 +65,14 @@ const DrawingPage = () => {
         ws.onmessage = async (event) => {
             const data = JSON.parse(event.data);
 
-            if (data.status === 'processing') {
-                setIsThinking(true);
-            }
-
             if (data.status === 'completed') {
-                setIsThinking(false);
-
                 await triggerGetDrawing({
                     id: params.id!,
                 });
             }
 
             if (data.status === 'failed') {
-                setIsThinking(false);
+                toast.error('Возникла ошибка обработки чертежа');
             }
         };
 
@@ -118,7 +111,13 @@ const DrawingPage = () => {
                 <Chat
                     question={question}
                     setQuestion={setQuestion}
-                    isThinking={isThinking}
+                    isThinking={
+                        data
+                            ? data.status === 'processing'
+                                ? true
+                                : false
+                            : true
+                    }
                     askHandler={askHandler}
                     oldMessages={data?.messages}
                 />
@@ -143,7 +142,13 @@ const DrawingPage = () => {
                     <Chat
                         question={question}
                         setQuestion={setQuestion}
-                        isThinking={isThinking}
+                        isThinking={
+                            data
+                                ? data.status === 'processing'
+                                    ? true
+                                    : false
+                                : true
+                        }
                         askHandler={askHandler}
                         oldMessages={data?.messages}
                     />

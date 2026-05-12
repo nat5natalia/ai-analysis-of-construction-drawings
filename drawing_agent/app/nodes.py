@@ -67,33 +67,33 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
         "\n\nВАЖНО: Пиши максимально лаконично. Если ответ требует много места, сокращай описание материалов."
 
     )
-    # 3. ПОДГОТОВКА К ОБРЕЗКЕ (Решение проблемы TypeError)
-    # tiktoken падает, если видит список (картинку) или None.
-    # Поэтому мы создаем временный список только с текстовым контентом для обрезки.
+
+    # 3. ПОДГОТОВКА К ОБРЕЗКЕ
     text_only_messages = []
     for m in messages:
-        # Если контент — список (мультимодальное сообщение), берем только текстовую часть
-        if isinstance(m.content, list):
-            text_content = next((item["text"] for item in m.content if item["type"] == "text"), "")
-            text_only_messages.append(HumanMessage(content=text_content))
-        elif m.content is None:
-            text_only_messages.append(m.__class__(content=""))
-        else:
-            text_only_messages.append(m)
+        content_to_check = ""
+        if isinstance(m.content, str):
+            content_to_check = m.content
+        elif isinstance(m.content, list):
+            # Извлекаем только текст из мультимодальных сообщений
+            content_to_check = " ".join([item["text"] for item in m.content if item.get("type") == "text"])
 
-    # Обрезаем историю, используя только текстовые версии сообщений
+        # Создаем временное сообщение для корректной работы trim_messages
+        text_only_messages.append(m.__class__(content=content_to_check))
+
     try:
         trimmed_messages = trim_messages(
             text_only_messages,
             max_tokens=cfg.agent.get('max_history_tokens', 4000),
             strategy="last",
-            token_counter=llm.get_num_tokens,  # Теперь здесь всегда строки
+            token_counter=llm.get_num_tokens,
             include_system=False,
             start_on="human"
         )
     except Exception as e:
         logger.error(f"Trim Error: {e}")
-        trimmed_messages = text_only_messages[-5:]  # Фолбэк: просто последние 5 сообщений
+        # Если упало, берем последние сообщения вручную, превращая контент в строку
+        trimmed_messages = text_only_messages[-5:]
 
     # 4. ФОРМИРОВАНИЕ ИТОГОВОГО СПИСКА (Добавляем системный промпт и картинку)
     final_messages = [SystemMessage(content=sys_content + format_instruction)]

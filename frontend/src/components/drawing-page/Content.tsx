@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import image from '../../images/no image.jfif';
+import no_image from '../../images/no image.jfif';
 import ErrorState from '../ErrorState';
 import { formatDate } from '../../utils/formatDate';
 import rehypeSanitize from 'rehype-sanitize';
@@ -22,13 +22,15 @@ const Content: FC<IContent> = ({ data, isError }) => {
         return imgSrc;
     };
 
+    const imageSrc = parseBase64();
+
     return (
         <div className="flex flex-col lg:h-full lg:overflow-hidden">
             <div className="flex flex-col lg:flex-row mt-6 gap-4 lg:flex-1 lg:min-h-0">
                 <img
                     className="w-full lg:w-3/5 rounded-lg object-contain"
-                    src={parseBase64() !== null ? parseBase64()! : undefined}
-                    alt={image}
+                    src={imageSrc !== null ? imageSrc! : no_image}
+                    alt="Загруженное изображение"
                 />
 
                 <div className="w-full lg:w-2/5 flex justify-center items-start">

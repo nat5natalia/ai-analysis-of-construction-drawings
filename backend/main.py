@@ -160,14 +160,8 @@ async def get_all_drawings(limit: int = 50, offset: int = 0):
     collection = db_manager.collection
     cursor = collection.find({}, {"_id": 0}).sort("uploaded_at", -1)
     raw_results = await cursor.skip(offset).limit(limit).to_list(length=limit)
-
-    enriched_results = []
-    for meta in raw_results:
-        enriched = await inject_image_data(meta, all_pages=True)
-        enriched_results.append(enriched)
-
     total = await collection.count_documents({})
-    return {"total": total, "drawings": enriched_results}
+    return {"total": total, "drawings": raw_results}
 
 
 @app.get("/api/drawings/{drawing_id}", response_model=DrawingResponse)
@@ -178,7 +172,56 @@ async def get_drawing_by_id(drawing_id: str):
     enriched = await inject_image_data(meta, all_pages=True)
     return enriched
 
+@app.get("/api/search")
+async def search_drawings(q: str, limit: int = 10, offset: int = 0):
+    try:
+        async with httpx.AsyncClient() as client:
+            # Отправляем запрос Агенту
+            # drawing_id=None означает глобальный поиск по всей базе FAISS
+            agent_payload = {
+                "query": q,
+                "limit": limit * 2,
+                "drawing_id": None
+            }
+            agent_resp = await client.post(
+                f"{AGENT_URL}/search",
+                json=agent_payload,
+                timeout=20.0 # Увеличили таймаут для надежности
+            )
+            agent_resp.raise_for_status()
+            search_data = agent_resp.json()
+    except Exception as e:
+        logger.error(f"Agent search failed: {e}")
+        return {"total": 0, "results": []}
 
+    agent_results = search_data.get("results", [])
+    results = []
+    seen_ids = set()
+
+    for match in agent_results:
+        d_id = match.get("drawing_id")
+        if not d_id or d_id in seen_ids:
+            continue
+
+        # Пытаемся найти метаданные в MongoDB по UUID, который пришел из FAISS
+        meta = await get_drawing(d_id)
+        if meta:
+            seen_ids.add(d_id)
+            enriched = await inject_image_data(meta, all_pages=False) # Для поиска превью не всегда нужны все страницы
+
+            results.append({
+                "id": enriched.get("id"),
+                "filename": enriched.get("filename"),
+                "description": match.get("text")[:200] + "...",
+                "score": match.get("score", 0.0),
+                "thumbnail_url": enriched.get("thumbnail_url"),
+                "image": enriched.get("image")
+            })
+
+        if len(results) >= limit:
+            break
+
+    return {"total": len(results), "results": results}
 @app.post("/api/upload", response_model=DrawingResponse)
 async def upload_drawing(file: UploadFile = File(...)):
     drawing_id = str(uuid.uuid4())

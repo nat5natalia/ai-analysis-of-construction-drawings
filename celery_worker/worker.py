@@ -31,8 +31,11 @@ app = Celery("tasks", broker=REDIS_URL, backend=REDIS_URL)
 redis_client = redis.from_url(REDIS_URL)
 
 
-def wait_for_agent(timeout_minutes=15):
-    """Ожидание готовности ИИ-агента к работе"""
+def wait_for_agent(timeout_minutes=5):
+    """
+    Ожидание готовности ИИ-агента.
+    Таймаут сокращен, чтобы не блокировать очередь Celery слишком долго.
+    """
     start_time = time.time()
     ready_url = f"{AGENT_BASE_URL}/ready"
 
@@ -41,16 +44,15 @@ def wait_for_agent(timeout_minutes=15):
             response = requests.get(ready_url, timeout=5)
             if response.status_code == 200 and response.json().get("status") == "ready":
                 return True
-            logger.info("Агент инициализируется. Повторная проверка через 10 секунд...")
+            logger.info("Агент инициализируется или занят. Повтор через 10 сек...")
         except Exception as e:
-            logger.error(f"Агент недоступен: {e}")
+            logger.error(f"Агент недоступен по {ready_url}: {e}")
         time.sleep(10)
     return False
 
 
 def notify_update(drawing_id: str, status: str, answer: str = None):
-    """Уведомление фронтенда через Redis Pub/Sub"""
-    # Если есть ответ — это новое сообщение, если нет — просто обновление статуса
+    """Уведомление фронтенда через Redis Pub/Sub."""
     event_type = "new_message" if answer else "update"
 
     message = {
@@ -60,6 +62,7 @@ def notify_update(drawing_id: str, status: str, answer: str = None):
     }
 
     if answer:
+        # В объекте уведомления пробрасываем ответ для мгновенного отображения
         message["answer"] = answer
 
     try:
@@ -78,6 +81,7 @@ def process_drawing(self, drawing_id: str, question: str):
         logger.error(f"Чертеж {drawing_id} не найден.")
         return {"status": "failed", "message": "Drawing not found"}
 
+    # Если описания еще нет — это первичная индексация документа
     is_initial_run = not bool(drawing.get("description"))
     client = MongoClient(MONGO_URL)
     db = client[MONGO_DB]
@@ -85,7 +89,7 @@ def process_drawing(self, drawing_id: str, question: str):
     try:
         current_time = datetime.now(timezone.utc).isoformat()
 
-        # 1. Обновляем статус. Сообщение пользователя уже сохранено в main.py
+        # 1. Обновляем статус в БД
         db["drawings"].update_one(
             {"id": drawing_id},
             {"$set": {"status": "processing", "updated_at": current_time}}
@@ -97,57 +101,66 @@ def process_drawing(self, drawing_id: str, question: str):
         answer = None
         error_msg = None
 
-        # 2. Взаимодействие с ИИ-Агентом
+        # 2. Проверка доступности ИИ-Агента
         if not wait_for_agent():
-            error_msg = "Таймаут: агент не ответил вовремя"
+            error_msg = "Таймаут: ИИ-агент не ответил в отведенное время"
         else:
             try:
+                # ВАЖНО: Всегда передаем drawing_id (UUID), чтобы агент не создавал дубликаты по хешам путей
+
                 if is_initial_run:
+                    logger.info(f"Запуск пре-анализа для {drawing_id}...")
                     requests.post(
                         f"{AGENT_BASE_URL}/pre-analyze",
-                        json={"path": file_path, "page": page},
+                        json={
+                            "path": file_path,
+                            "drawing_id": drawing_id,
+                            "page": page
+                        },
                         timeout=600
                     ).raise_for_status()
 
+                # Запрос на генерацию ответа
                 resp = requests.post(f"{AGENT_BASE_URL}/process", json={
                     "path": file_path,
+                    "drawing_id": drawing_id,
                     "question": question,
                     "thread_id": drawing_id,
                     "page": page
-                }, timeout=180)
+                }, timeout=300)
                 resp.raise_for_status()
 
                 result = resp.json()
                 if result.get("success"):
                     answer = result.get("answer")
                 else:
-                    error_msg = result.get("error", "Неизвестная ошибка агента")
+                    error_msg = result.get("error", "Агент вернул ошибку без описания")
             except Exception as e:
-                error_msg = f"Ошибка связи с ИИ: {str(e)}"
+                error_msg = f"Ошибка связи с ИИ-агентом: {str(e)}"
 
-        # 3. Финализация
+        # 3. Финализация и сохранение результатов
         finish_time = datetime.now(timezone.utc).isoformat()
         final_status = "completed" if not error_msg else "failed"
 
-        update_set = {
+        update_fields = {
             "status": final_status,
             "error": error_msg,
             "updated_at": finish_time
         }
 
-        update_op = {"$set": update_set}
+        # Если это был первый анализ, записываем результат в техническое описание
+        if is_initial_run and answer:
+            update_fields["description"] = answer
 
+        update_op = {"$set": update_fields}
+
+        # Если получен ответ, добавляем его в историю сообщений IMessage
         if answer:
-            # Для первичного запуска пишем в описание
-            if is_initial_run:
-                update_set["description"] = answer
-
-            # В любом случае добавляем ответ ассистента в историю
             update_op["$push"] = {
                 "messages": {
                     "role": "assistant",
                     "text": answer,
-                    "content": answer,
+                    "content": answer,  # Дублируем для совместимости со старыми схемами
                     "ts": finish_time
                 }
             }
@@ -161,8 +174,9 @@ def process_drawing(self, drawing_id: str, question: str):
             {"id": drawing_id},
             {"$set": {"status": "failed", "error": str(e)}}
         )
-        raise self.retry(exc=e, countdown=10)
+        # Повтор задачи при временных сбоях (например, сеть)
+        raise self.retry(exc=e, countdown=15)
     finally:
         client.close()
 
-    return {"status": "completed"}
+    return {"status": final_status}

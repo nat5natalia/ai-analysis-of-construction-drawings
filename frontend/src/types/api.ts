@@ -17,6 +17,7 @@ export interface IDrawingsResponse {
         {
             id: string;
             filename: string;
+            image?: ImageData | null;
             status: 'completed' | 'processing';
             uploaded_at: string;
             has_description: boolean;

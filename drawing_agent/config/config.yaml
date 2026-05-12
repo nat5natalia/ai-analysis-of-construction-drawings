@@ -11,5 +11,5 @@ debug: false
 
 run:
   thread_id: drawing_session_1
-  use_instructor: true
+  use_instructor: false
 

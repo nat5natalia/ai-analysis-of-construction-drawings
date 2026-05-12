@@ -160,14 +160,8 @@ async def get_all_drawings(limit: int = 50, offset: int = 0):
     collection = db_manager.collection
     cursor = collection.find({}, {"_id": 0}).sort("uploaded_at", -1)
     raw_results = await cursor.skip(offset).limit(limit).to_list(length=limit)
-
-    enriched_results = []
-    for meta in raw_results:
-        enriched = await inject_image_data(meta, all_pages=True)
-        enriched_results.append(enriched)
-
     total = await collection.count_documents({})
-    return {"total": total, "drawings": enriched_results}
+    return {"total": total, "drawings": raw_results}
 
 
 @app.get("/api/drawings/{drawing_id}", response_model=DrawingResponse)
@@ -178,6 +172,92 @@ async def get_drawing_by_id(drawing_id: str):
     enriched = await inject_image_data(meta, all_pages=True)
     return enriched
 
+
+@app.get("/api/search")
+async def search_drawings(q: str, limit: int = 10, offset: int = 0):
+    results = []
+    seen_ids = set()
+
+    # --- 1. Попытка векторного поиска через Агента ---
+    try:
+        async with httpx.AsyncClient() as client:
+            agent_payload = {
+                "query": q,
+                "limit": limit * 2,
+                "drawing_id": None
+            }
+            agent_resp = await client.post(
+                f"{AGENT_URL}/search",
+                json=agent_payload,
+                timeout=15.0
+            )
+            if agent_resp.status_code == 200:
+                agent_data = agent_resp.json()
+                agent_results = agent_data.get("results", [])
+
+                for match in agent_results:
+                    d_id = match.get("drawing_id")
+                    if not d_id or d_id in seen_ids:
+                        continue
+
+                    meta = await get_drawing(d_id)
+                    if meta:
+                        seen_ids.add(d_id)
+                        enriched = await inject_image_data(meta, all_pages=False)
+                        results.append({
+                            "id": enriched.get("id"),
+                            "filename": enriched.get("filename"),
+                            "description": (match.get("text") or enriched.get("description", ""))[:200] + "...",
+                            "score": match.get("score", 0.0),
+                            "thumbnail_url": enriched.get("thumbnail_url"),
+                            "image": enriched.get("image"),
+                            "search_type": "vector"
+                        })
+    except Exception as e:
+        logger.error(f"Vector search failed, switching to regex: {e}")
+
+    # --- 2. Fallback: Регулярки в MongoDB (если векторный поиск дал 0 или упал) ---
+    if not results:
+        logger.info(f"Vector search returned 0 results for '{q}'. Starting Regex search...")
+        try:
+            # Создаем нечувствительное к регистру регулярное выражение
+            regex_query = {"$regex": q, "$options": "i"}
+
+            # Ищем совпадения либо в названии файла, либо в описании
+            mongo_query = {
+                "$or": [
+                    {"filename": regex_query},
+                    {"description": regex_query}
+                ]
+            }
+
+            collection = db_manager.collection
+            cursor = collection.find(mongo_query, {"_id": 0}).sort("uploaded_at", -1)
+            db_matches = await cursor.skip(offset).limit(limit).to_list(length=limit)
+
+            for meta in db_matches:
+                d_id = meta.get("id")
+                if d_id not in seen_ids:
+                    seen_ids.add(d_id)
+                    enriched = await inject_image_data(meta, all_pages=False)
+                    results.append({
+                        "id": enriched.get("id"),
+                        "filename": enriched.get("filename"),
+                        "description": (enriched.get("description") or "Описание отсутствует")[:200] + "...",
+                        "score": 1.0,  # Условный скор для регулярок
+                        "thumbnail_url": enriched.get("thumbnail_url"),
+                        "image": enriched.get("image"),
+                        "search_type": "regex"
+                    })
+        except Exception as e:
+            logger.error(f"Regex search failed: {e}")
+
+    return {
+        "total": len(results),
+        "results": results,
+        "query": q,
+        "is_fallback": len(results) > 0 and any(r.get("search_type") == "regex" for r in results)
+    }
 
 @app.post("/api/upload", response_model=DrawingResponse)
 async def upload_drawing(file: UploadFile = File(...)):

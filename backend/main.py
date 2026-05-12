@@ -172,12 +172,15 @@ async def get_drawing_by_id(drawing_id: str):
     enriched = await inject_image_data(meta, all_pages=True)
     return enriched
 
+
 @app.get("/api/search")
 async def search_drawings(q: str, limit: int = 10, offset: int = 0):
+    results = []
+    seen_ids = set()
+
+    # --- 1. Попытка векторного поиска через Агента ---
     try:
         async with httpx.AsyncClient() as client:
-            # Отправляем запрос Агенту
-            # drawing_id=None означает глобальный поиск по всей базе FAISS
             agent_payload = {
                 "query": q,
                 "limit": limit * 2,
@@ -186,42 +189,76 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
             agent_resp = await client.post(
                 f"{AGENT_URL}/search",
                 json=agent_payload,
-                timeout=20.0 # Увеличили таймаут для надежности
+                timeout=15.0
             )
-            agent_resp.raise_for_status()
-            search_data = agent_resp.json()
+            if agent_resp.status_code == 200:
+                agent_data = agent_resp.json()
+                agent_results = agent_data.get("results", [])
+
+                for match in agent_results:
+                    d_id = match.get("drawing_id")
+                    if not d_id or d_id in seen_ids:
+                        continue
+
+                    meta = await get_drawing(d_id)
+                    if meta:
+                        seen_ids.add(d_id)
+                        enriched = await inject_image_data(meta, all_pages=False)
+                        results.append({
+                            "id": enriched.get("id"),
+                            "filename": enriched.get("filename"),
+                            "description": (match.get("text") or enriched.get("description", ""))[:200] + "...",
+                            "score": match.get("score", 0.0),
+                            "thumbnail_url": enriched.get("thumbnail_url"),
+                            "image": enriched.get("image"),
+                            "search_type": "vector"
+                        })
     except Exception as e:
-        logger.error(f"Agent search failed: {e}")
-        return {"total": 0, "results": []}
+        logger.error(f"Vector search failed, switching to regex: {e}")
 
-    agent_results = search_data.get("results", [])
-    results = []
-    seen_ids = set()
+    # --- 2. Fallback: Регулярки в MongoDB (если векторный поиск дал 0 или упал) ---
+    if not results:
+        logger.info(f"Vector search returned 0 results for '{q}'. Starting Regex search...")
+        try:
+            # Создаем нечувствительное к регистру регулярное выражение
+            regex_query = {"$regex": q, "$options": "i"}
 
-    for match in agent_results:
-        d_id = match.get("drawing_id")
-        if not d_id or d_id in seen_ids:
-            continue
+            # Ищем совпадения либо в названии файла, либо в описании
+            mongo_query = {
+                "$or": [
+                    {"filename": regex_query},
+                    {"description": regex_query}
+                ]
+            }
 
-        # Пытаемся найти метаданные в MongoDB по UUID, который пришел из FAISS
-        meta = await get_drawing(d_id)
-        if meta:
-            seen_ids.add(d_id)
-            enriched = await inject_image_data(meta, all_pages=False) # Для поиска превью не всегда нужны все страницы
+            collection = db_manager.collection
+            cursor = collection.find(mongo_query, {"_id": 0}).sort("uploaded_at", -1)
+            db_matches = await cursor.skip(offset).limit(limit).to_list(length=limit)
 
-            results.append({
-                "id": enriched.get("id"),
-                "filename": enriched.get("filename"),
-                "description": match.get("text")[:200] + "...",
-                "score": match.get("score", 0.0),
-                "thumbnail_url": enriched.get("thumbnail_url"),
-                "image": enriched.get("image")
-            })
+            for meta in db_matches:
+                d_id = meta.get("id")
+                if d_id not in seen_ids:
+                    seen_ids.add(d_id)
+                    enriched = await inject_image_data(meta, all_pages=False)
+                    results.append({
+                        "id": enriched.get("id"),
+                        "filename": enriched.get("filename"),
+                        "description": (enriched.get("description") or "Описание отсутствует")[:200] + "...",
+                        "score": 1.0,  # Условный скор для регулярок
+                        "thumbnail_url": enriched.get("thumbnail_url"),
+                        "image": enriched.get("image"),
+                        "search_type": "regex"
+                    })
+        except Exception as e:
+            logger.error(f"Regex search failed: {e}")
 
-        if len(results) >= limit:
-            break
+    return {
+        "total": len(results),
+        "results": results,
+        "query": q,
+        "is_fallback": len(results) > 0 and any(r.get("search_type") == "regex" for r in results)
+    }
 
-    return {"total": len(results), "results": results}
 @app.post("/api/upload", response_model=DrawingResponse)
 async def upload_drawing(file: UploadFile = File(...)):
     drawing_id = str(uuid.uuid4())

@@ -3,6 +3,7 @@ import { GoDependabot } from 'react-icons/go';
 import Input from '../../UI/Input';
 import {
     useEffect,
+    useRef,
     useState,
     type ChangeEventHandler,
     type FC,
@@ -30,6 +31,7 @@ const Chat: FC<IChat> = ({
     const [messages, setMessages] = useState<
         { type: 'answer' | 'question'; body: string }[]
     >([]);
+    const bottomRef = useRef<HTMLDivElement | null>(null);
 
     const handleChange: ChangeEventHandler<HTMLInputElement> = (e) => {
         setQuestion(e.target.value);
@@ -53,13 +55,23 @@ const Chat: FC<IChat> = ({
         }
     }, [oldMessages]);
 
+    useEffect(() => {
+        bottomRef.current?.scrollIntoView({
+            behavior: 'smooth',
+        });
+    }, [messages, isThinking]);
+
     return (
         <div className="w-full h-full flex flex-col border-l-2 border-blue-300">
             <div className="flex h-fit bg-blue-300  items-center gap-4 pl-4 pt-2 pb-2">
                 <GoDependabot className="text-3xl" />
                 <p className="text-2xl">Чат с AI-ассистентом</p>
             </div>
-            <MessagesContainer messages={messages} isLoading={isThinking} />
+            <MessagesContainer
+                messages={messages}
+                isLoading={isThinking}
+                bottomRef={bottomRef}
+            />
             <form
                 className="flex h-max bg-blue-300 items-center p-2 gap-2"
                 onSubmit={askHandler}

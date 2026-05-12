@@ -22,6 +22,19 @@ const Content: FC<IContent> = ({ data, isError }) => {
         return imgSrc;
     };
 
+    const parseStatus = (status: 'processing' | 'completed' | 'failed') => {
+        switch (status) {
+            case 'processing':
+                return 'В обработке';
+            case 'completed':
+                return 'Обработан';
+            case 'failed':
+                return 'Ошибка';
+            default:
+                return status;
+        }
+    };
+
     const imageSrc = parseBase64();
 
     return (
@@ -52,7 +65,13 @@ const Content: FC<IContent> = ({ data, isError }) => {
                         </div>
 
                         <div className="text-gray-500">Статус:</div>
-                        <div>{data ? data.status : <p>Загрузка...</p>}</div>
+                        <div>
+                            {data ? (
+                                parseStatus(data.status)
+                            ) : (
+                                <p>Загрузка...</p>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

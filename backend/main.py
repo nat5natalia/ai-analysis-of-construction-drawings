@@ -54,6 +54,14 @@ app.add_middleware(
 
 
 # --- Pydantic Схемы ---
+class MessageSchema(BaseModel):
+    role: str
+    text: Optional[str] = None    # Делаем Optional, чтобы старые записи не ломали API
+    content: Optional[str] = None # Поле, которое уже есть в твоей БД
+    ts: str
+
+    # Добавляем валидатор, чтобы если есть только content, он попадал в text
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
 class DrawingImage(BaseModel):
     base64: List[str]
@@ -69,6 +77,7 @@ class DrawingResponse(BaseModel):
     description: Optional[str] = None
     thumbnail_url: Optional[str] = None
     image: Optional[DrawingImage] = None
+    messages: List[MessageSchema] = []
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
 
@@ -97,21 +106,19 @@ async def redis_listener():
                     data = json.loads(message["data"])
                     d_id = data.get("drawing_id")
 
-                    # Маппинг для фронтенда: превращаем 'answer' от воркера в 'text' для IMessage
-                    if "answer" in data:
+                    # Если в данных есть реальный ответ — формируем объект сообщения
+                    if data.get("event") == "new_message" and data.get("answer"):
                         data["message"] = {
                             "role": "assistant",
-                            "text": data["answer"],  # ОСНОВНОЙ ТЕКСТ ТУТ
+                            "text": data["answer"],
                             "content": data["answer"],
                             "ts": datetime.now(timezone.utc).isoformat()
                         }
-                        logger.info(f"✅ Prepared IMessage for WS: ID={d_id}")
-
-                    if data.get("status") == "error":
-                        data["status"] = "failed"
 
                     if d_id:
+                        # Отправляем в сокет (менеджер сам проверит наличие подписки)
                         await manager.send_to_drawing(data, d_id)
+
                 except Exception as e:
                     logger.error(f"Error processing Redis message: {e}")
             await asyncio.sleep(0.01)
@@ -213,7 +220,7 @@ async def ask_question(drawing_id: str, request: AskRequest):
         "content": request.question,
         "ts": ts
     }
-
+    logger.info(f"DEBUG DB: Saving user question for ID={drawing_id}. Text: {request.question[:30]}...")
     await db_manager.collection.update_one(
         {"id": drawing_id},
         {

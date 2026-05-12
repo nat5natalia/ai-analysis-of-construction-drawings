@@ -50,18 +50,21 @@ def wait_for_agent(timeout_minutes=15):
 
 def notify_update(drawing_id: str, status: str, answer: str = None):
     """Уведомление фронтенда через Redis Pub/Sub"""
+    # Если есть ответ — это новое сообщение, если нет — просто обновление статуса
+    event_type = "new_message" if answer else "update"
+
     message = {
-        "drawing_id": drawing_id,
+        "drawing_id": str(drawing_id),
         "status": status,
-        "event": "update",
-        "answer": answer  # Передаем ответ; main.py упакует его в IMessage.text
+        "event": event_type
     }
 
     if answer:
-        logger.info(f"Отправка ответа в Redis для {drawing_id}: {answer[:50]}...")
+        message["answer"] = answer
 
     try:
         redis_client.publish("drawing_updates", json.dumps(message))
+        logger.info(f"Published to Redis: ID={drawing_id}, Event={event_type}")
     except Exception as e:
         logger.error(f"Ошибка публикации в Redis: {e}")
 
@@ -82,28 +85,11 @@ def process_drawing(self, drawing_id: str, question: str):
     try:
         current_time = datetime.now(timezone.utc).isoformat()
 
-        # 1. Сохранение вопроса пользователя (если это не первичный промпт)
-        if not is_initial_run:
-            db["drawings"].update_one(
-                {"id": drawing_id},
-                {
-                    "$set": {"status": "processing", "updated_at": current_time},
-                    "$push": {
-                        "messages": {
-                            "role": "user",
-                            "text": question,      # Поле для отображения на фронте
-                            "content": question,   # Поле для истории LLM
-                            "ts": current_time
-                        }
-                    }
-                }
-            )
-        else:
-            db["drawings"].update_one(
-                {"id": drawing_id},
-                {"$set": {"status": "processing", "updated_at": current_time}}
-            )
-
+        # 1. Обновляем статус. Сообщение пользователя уже сохранено в main.py
+        db["drawings"].update_one(
+            {"id": drawing_id},
+            {"$set": {"status": "processing", "updated_at": current_time}}
+        )
         notify_update(drawing_id, "processing")
 
         file_path = drawing.get("file_path")
@@ -117,7 +103,6 @@ def process_drawing(self, drawing_id: str, question: str):
         else:
             try:
                 if is_initial_run:
-                    logger.info(f"Первичный анализ: {file_path}")
                     requests.post(
                         f"{AGENT_BASE_URL}/pre-analyze",
                         json={"path": file_path, "page": page},
@@ -138,41 +123,36 @@ def process_drawing(self, drawing_id: str, question: str):
                 else:
                     error_msg = result.get("error", "Неизвестная ошибка агента")
             except Exception as e:
-                logger.error(f"Ошибка запроса к агенту: {e}")
                 error_msg = f"Ошибка связи с ИИ: {str(e)}"
 
-        # 3. Подготовка финального обновления
+        # 3. Финализация
         finish_time = datetime.now(timezone.utc).isoformat()
         final_status = "completed" if not error_msg else "failed"
 
         update_set = {
             "status": final_status,
             "error": error_msg,
-            "updated_at": finish_time,
-            "last_answer": answer
+            "updated_at": finish_time
         }
 
         update_op = {"$set": update_set}
 
         if answer:
+            # Для первичного запуска пишем в описание
             if is_initial_run:
-                # Для первичного запуска записываем результат в описание
                 update_set["description"] = answer
-            else:
-                # Для диалога пушим в историю с корректными полями IMessage
-                update_op["$push"] = {
-                    "messages": {
-                        "role": "assistant",
-                        "text": answer,     # Основной текст для фронтенда
-                        "content": answer,
-                        "ts": finish_time
-                    }
+
+            # В любом случае добавляем ответ ассистента в историю
+            update_op["$push"] = {
+                "messages": {
+                    "role": "assistant",
+                    "text": answer,
+                    "content": answer,
+                    "ts": finish_time
                 }
+            }
 
-        # Финальное сохранение в MongoDB
         db["drawings"].update_one({"id": drawing_id}, update_op)
-
-        # Уведомляем бэкенд (main.py), который перешлет это в WebSocket
         notify_update(drawing_id, final_status, answer=answer)
 
     except Exception as e:

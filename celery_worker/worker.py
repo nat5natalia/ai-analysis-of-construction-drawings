@@ -147,15 +147,12 @@ def process_drawing(self, drawing_id: str, question: str):
             "error": error_msg,
             "updated_at": finish_time
         }
-
+        update_op = {}
         # Если это был первый анализ, записываем результат в техническое описание
         if is_initial_run and answer:
             update_fields["description"] = answer
-
-        update_op = {"$set": update_fields}
-
         # Если получен ответ, добавляем его в историю сообщений IMessage
-        if answer:
+        elif answer:
             update_op["$push"] = {
                 "messages": {
                     "role": "assistant",
@@ -165,6 +162,7 @@ def process_drawing(self, drawing_id: str, question: str):
                 }
             }
 
+        update_op = {"$set": update_fields}
         db["drawings"].update_one({"id": drawing_id}, update_op)
         notify_update(drawing_id, final_status, answer=answer)
 

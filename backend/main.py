@@ -139,19 +139,32 @@ async def startup_event():
 
 async def inject_image_data(drawing_meta: dict, all_pages: bool = False) -> dict:
     file_path = drawing_meta.get("file_path")
-    if all_pages and file_path and os.path.exists(file_path):
+
+    if file_path and os.path.exists(file_path):
         try:
             loop = asyncio.get_event_loop()
+            # Конвертируем PDF в список base64
             pages = await loop.run_in_executor(executor, file_to_images_base64, file_path)
-            drawing_meta["image"] = {
-                "base64": pages,
-                "total_pages": len(pages),
-                "content_type": "image/png"
-            }
-        except Exception as e:
-            logger.warning(f"Image injection failed: {e}")
-    return drawing_meta
 
+            if pages:
+                # Если all_pages=True — отдаем всё, иначе — только первую страницу
+                result_pages = pages if all_pages else pages[:1]
+
+                drawing_meta["image"] = {
+                    "base64": result_pages,
+                    "total_pages": len(pages),  # Оставляем реальное кол-во страниц для информации
+                    "content_type": "image/png"
+                }
+            else:
+                drawing_meta["image"] = None
+
+        except Exception as e:
+            logger.warning(f"Image injection failed for {drawing_meta.get('id')}: {e}")
+            drawing_meta["image"] = None
+    else:
+        drawing_meta["image"] = None
+
+    return drawing_meta
 
 # --- API Эндпоинты ---
 
@@ -160,8 +173,17 @@ async def get_all_drawings(limit: int = 50, offset: int = 0):
     collection = db_manager.collection
     cursor = collection.find({}, {"_id": 0}).sort("uploaded_at", -1)
     raw_results = await cursor.skip(offset).limit(limit).to_list(length=limit)
+
+    # Обогащаем каждый чертеж данными изображений
+    enriched_results = []
+    for meta in raw_results:
+        # Ставим all_pages=True, если фронту нужны все страницы сразу в списке
+        # Если список тяжелый, можно оставить False (будет только мета)
+        enriched = await inject_image_data(meta, all_pages=True)
+        enriched_results.append(enriched)
+
     total = await collection.count_documents({})
-    return {"total": total, "drawings": raw_results}
+    return {"total": total, "drawings": enriched_results}
 
 
 @app.get("/api/drawings/{drawing_id}", response_model=DrawingResponse)
@@ -290,7 +312,7 @@ async def upload_drawing(file: UploadFile = File(...)):
 
     await save_drawing(drawing)
     celery_process_task.delay(drawing_id, "Сделай подробное техническое описание чертежа.")
-    return drawing
+    return await inject_image_data(drawing, all_pages=True)
 
 @app.post("/api/ask/{drawing_id}")
 async def ask_question(drawing_id: str, request: AskRequest):

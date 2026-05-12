@@ -49,52 +49,56 @@ async def preprocess_node(state: AgentState, cfg: DictConfig) -> AgentState:
 async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
     llm = get_llm(cfg)
 
-    # 1. Используем импортированную функцию для сборки системного промпта
+    # 1. Сборка данных
     heavy_data = state.get("heavy_analysis", "Данные пре-анализа отсутствуют.")
     rag_data = state.get("context", "Дополнительный контекст не найден.")
-
     sys_content = get_final_system_prompt(heavy_data, rag_data)
 
-    # 2. Адаптация формата ответа под вопрос пользователя
+    # 2. Формирование ПРАВИЛА (Инвертируем: сначала суть, потом детали)
     user_query = ""
     for m in reversed(state["messages"]):
         if isinstance(m, HumanMessage):
             user_query = str(m.content)
             break
 
-    if any(word in user_query.lower() for word in ["подробно", "анализ", "опиши", "расскажи"]):
-        format_instruction = "\n\nПРАВИЛО ОТВЕТА: Дай развернутый аналитический отчет с пояснениями."
-    else:
-        format_instruction = "\n\nПРАВИЛО ОТВЕТА: Дай краткий технический ответ."
+    is_detailed = any(word in user_query.lower() for word in ["подробно", "анализ", "опиши", "расскажи"])
 
-    format_instruction += "\nВАЖНО: В конце ответа ОБЯЗАТЕЛЬНО выведи таблицу использованных ГОСТ/СНиП."
+    # Жесткая установка структуры ответа, чтобы не упереться в лимит
+    format_instruction = (
+        "\n\nСТРУКТУРА ОТВЕТА:"
+        "\n1. ПРЯМОЙ КРАТКИЙ ОТВЕТ (максимум 2-3 предложения)."
+        f"\n2. {'РАЗВЕРНУТЫЙ АНАЛИЗ' if is_detailed else 'ТЕХНИЧЕСКИЕ ПОДРОБНОСТИ'} (если уместно)."
+        "\n3. ТАБЛИЦА ГОСТ/СНиП."
+        "\n\nВАЖНО: Пиши максимально лаконично. Если ответ требует много места, сокращай описание материалов."
+    )
 
     # 3. Подготовка сообщений
     messages = state["messages"]
     trimmed_messages = trim_messages(
         messages,
-        max_tokens=cfg.agent.get('max_history_tokens', 10000),
+        max_tokens=cfg.agent.get('max_history_tokens', 4000),
         strategy="last",
-        token_counter=len,
-        include_system=True,
+        token_counter=llm.get_num_tokens,
+        include_system=False,  # Системный добавим отдельно
         start_on="human"
     )
 
-    # Начинаем список с системного сообщения
+    # 2. Теперь формируем итоговый список сообщений
     final_messages = [SystemMessage(content=sys_content + format_instruction)]
 
-    # Ищем индекс последнего сообщения от пользователя во всей истории
+    # Ищем последнее сообщение от пользователя в УЖЕ ОБРЕЗАННОМ списке
     last_human_idx = -1
     for i, msg in enumerate(trimmed_messages):
         if isinstance(msg, HumanMessage):
             last_human_idx = i
 
     for i, msg in enumerate(trimmed_messages):
+        # Добавляем картинку только к самому последнему вопросу
         if i == last_human_idx and state.get("current_drawing"):
-            # Модифицируем только ПОСЛЕДНИЙ HumanMessage, добавляя картинку (Vision)
             clean_b64 = state["current_drawing"].split('base64,')[-1]
             text_content = msg.content if isinstance(msg.content, str) else "Проанализируй чертеж."
 
+            # Создаем новое сообщение с картинкой
             multimodal_msg = HumanMessage(
                 content=[
                     {"type": "text", "text": text_content},
@@ -103,19 +107,15 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
             )
             final_messages.append(multimodal_msg)
         else:
-            # Все остальные сообщения (AI, Tool, предыдущие Human) добавляем как есть
             final_messages.append(msg)
 
-    # 4. Вызов LLM
+    # 3. Теперь вызываем LLM — теперь в final_messages есть и системный промпт, и картинка
     try:
-        llm_with_tools = llm.bind_tools(ALL_TOOLS)
-        response = await llm_with_tools.ainvoke(final_messages)
+        response = await llm.ainvoke(final_messages)
         return {"messages": [response]}
     except Exception as e:
         logger.error(f"LLM Error: {e}")
-        return {"messages": [AIMessage(content="Ошибка нейросети при анализе.")]}
-
-
+        return {"messages": [AIMessage(content="Ошибка нейросети.")]}
 
 async def tools_node(state: AgentState) -> AgentState:
     """Выполнение инструментов, если агент решит уточнить что-то после 'тяжелого' пре-анализа."""

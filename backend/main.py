@@ -11,6 +11,13 @@ from pydantic import BaseModel
 
 from db import db_manager, save_drawing, get_drawing, delete_drawing
 from celery_worker.worker import process_drawing as celery_process_task
+from pdf import file_to_images_base64
+
+import asyncio
+import redis.asyncio as redis
+import json
+from fastapi import WebSocket, WebSocketDisconnect
+from connection_manager import manager
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -18,12 +25,13 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Анализ строительных чертежей",
-    description="API с поддержкой Celery и векторного поиска",
-    version="1.2.1"
+    description="API с поддержкой Celery и отдачей превью в формате объекта image",
+    version="1.5.0"
 )
 
 AGENT_URL = os.getenv("AGENT_URL", "http://drawing_agent:8000")
 UPLOAD_DIR = os.getenv("DATASET_PATH", "uploads")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -39,47 +47,135 @@ class AskRequest(BaseModel):
     question: str
 
 
+# --- Фоновая задача для уведомлений ---
+
+async def redis_listener():
+    """
+    Слушает канал уведомлений в Redis. Когда Celery публикует сообщение,
+    этот цикл перехватывает его и отправляет в соответствующий WebSocket.
+    """
+    r = redis.from_url(REDIS_URL, decode_responses=True)
+    pubsub = r.pubsub()
+    await pubsub.subscribe("drawing_updates")
+
+    logger.info("Redis Listener started: listening for drawing_updates")
+
+    try:
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_init=True)
+            if message:
+                data = json.loads(message["data"])
+                d_id = data.get("drawing_id")
+                await manager.send_to_drawing(data, d_id)
+            await asyncio.sleep(0.1)  # Микропауза для разгрузки процессора
+    except Exception as e:
+        logger.error(f"Redis Listener Error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Инициализируем асинхронное подключение к БД при старте"""
     await db_manager.connect()
-    logger.info("Backend connected to MongoDB")
+    # Запускаем "слушателя" Redis в фоне, чтобы он не блокировал API
+    asyncio.create_task(redis_listener())
+    logger.info("Backend connected to MongoDB and Redis Listener started")
+
+
+# --- Вспомогательная функция для соответствия интерфейсу фронтенда ---
+
+def inject_image_data(drawing_meta: dict, all_pages: bool = False) -> dict:
+    """
+    Трансформирует метаданные, добавляя объект 'image' согласно интерфейсу IDrawingResponse.
+    all_pages=False: добавляет только первую страницу (для списков).
+    all_pages=True: добавляет все страницы (для детального просмотра).
+    """
+    file_path = drawing_meta.get("file_path")
+    # Инициализируем структуру по умолчанию
+    drawing_meta["image"] = None
+
+    if file_path and os.path.exists(file_path):
+        try:
+            pages = file_to_images_base64(file_path)
+            if pages:
+                # Формируем объект согласно запросу фронтенда
+                drawing_meta["image"] = {
+                    "base64": pages if all_pages else [pages[0]],
+                    "total_pages": len(pages),
+                    "content_type": "image/png"
+                }
+        except Exception as e:
+            logger.warning(f"Ошибка при генерации изображения для {file_path}: {e}")
+
+    return drawing_meta
 
 
 # --- 1. Поиск и метаданные ---
 
 @app.get("/api/drawings")
 async def get_all_drawings(limit: int = 20, offset: int = 0):
+    """Возвращает список чертежей с объектом image (превью первой страницы)."""
     collection = db_manager.collection
     cursor = collection.find({}, {"_id": 0})
     results = await cursor.skip(offset).limit(limit).to_list(length=limit)
+
+    # Обогащаем каждый элемент списка объектом image
+    enriched_results = [inject_image_data(d, all_pages=False) for d in results]
+
     total = await collection.count_documents({})
-    return {"total": total, "drawings": results}
+    return {"total": total, "drawings": enriched_results}
 
 
 @app.get("/api/drawings/{drawing_id}")
 async def get_drawing_by_id(drawing_id: str):
+    """Детальная информация: объект image содержит массив всех страниц."""
     meta = await get_drawing(drawing_id)
     if not meta:
         raise HTTPException(status_code=404, detail="Чертеж не найден")
-    return meta
+
+    # Здесь возвращаем все страницы чертежа внутри объекта image
+    return inject_image_data(meta, all_pages=True)
 
 
-# --- 2. Загрузка и запуск обработки ---
+@app.get("/api/search")
+async def search_drawings(q: str, limit: int = 10, drawing_id: Optional[str] = None):
+    """Поиск по векторной базе с обогащением метаданных (поле image)."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            payload = {"query": q, "limit": limit}
+            if drawing_id:
+                meta_local = await get_drawing(drawing_id)
+                if meta_local:
+                    payload["path"] = meta_local.get("file_path")
+
+            response = await client.post(f"{AGENT_URL}/search", json=payload)
+            response.raise_for_status()
+            search_results = response.json()
+
+            for item in search_results.get("results", []):
+                d_id = item.get("drawing_id")
+                if d_id:
+                    meta = await get_drawing(d_id)
+                    if meta:
+                        # В поиске обычно достаточно превью
+                        item["metadata"] = inject_image_data(meta, all_pages=False)
+
+            return search_results
+        except Exception as e:
+            logger.error(f"Agent search error: {e}")
+            raise HTTPException(status_code=500, detail=f"Ошибка поиска: {str(e)}")
+
+
+# --- 2. Загрузка и удаление ---
 
 @app.post("/api/upload")
 async def upload_drawing(file: UploadFile = File(...)):
+    """Загрузка и мгновенный ответ с объектом image."""
     drawing_id = str(uuid.uuid4())
     ext = os.path.splitext(file.filename)[1]
     save_path = os.path.join(UPLOAD_DIR, f"{drawing_id}{ext}")
 
-    try:
-        content = await file.read()
-        with open(save_path, "wb") as f:
-            f.write(content)
-    except Exception as e:
-        logger.error(f"Error saving file: {e}")
-        raise HTTPException(status_code=500, detail="Could not save file")
+    content = await file.read()
+    with open(save_path, "wb") as f:
+        f.write(content)
 
     drawing = {
         "id": drawing_id,
@@ -89,51 +185,15 @@ async def upload_drawing(file: UploadFile = File(...)):
         "file_path": save_path,
         "messages": [],
         "description": None,
+        "has_embedding": True  # Указываем для соответствия интерфейсу
     }
 
     await save_drawing(drawing)
+    celery_process_task.delay(drawing_id, "Сделай подробное техническое описание чертежа.")
 
-    # Запускаем первичный анализ (техническое описание) через Celery
-    try:
-        celery_process_task.delay(drawing_id, "Сделай подробное техническое описание чертежа.")
-    except Exception as e:
-        logger.error(f"Failed to dispatch Celery task: {e}")
-        # Не валим весь запрос, просто помечаем ошибку очереди в БД
-        await db_manager.collection.update_one(
-            {"id": drawing_id},
-            {"$set": {"status": "queued_failed", "error": str(e)}}
-        )
+    # Возвращаем созданный объект с превью
+    return inject_image_data(drawing, all_pages=False)
 
-    return {"id": drawing_id, "status": "processing"}
-
-
-@app.post("/api/ask/{drawing_id}")
-async def ask_about_drawing(drawing_id: str, body: AskRequest):
-    meta = await get_drawing(drawing_id)
-    if not meta:
-        raise HTTPException(status_code=404, detail="Чертеж не найден")
-
-    try:
-        # Ставим задачу в очередь
-        task = celery_process_task.delay(drawing_id, body.question)
-
-        # Сбрасываем статус в БД, чтобы фронтенд понимал, что идет новый процесс
-        await db_manager.collection.update_one(
-            {"id": drawing_id},
-            {"$set": {"status": "processing"}}
-        )
-
-        return {
-            "id": drawing_id,
-            "task_id": task.id,
-            "status": "queued"
-        }
-    except Exception as e:
-        logger.error(f"Celery error: {e}")
-        raise HTTPException(status_code=503, detail="Task queue unavailable")
-
-
-# --- 3. Удаление ---
 
 @app.delete("/api/drawings/{drawing_id}")
 async def delete_drawing_by_id(drawing_id: str):
@@ -141,64 +201,37 @@ async def delete_drawing_by_id(drawing_id: str):
     if not meta:
         raise HTTPException(status_code=404, detail="Чертеж не найден")
 
-    # 1. Удаляем физический файл
-    file_path = meta.get("file_path")
-    if file_path and os.path.exists(file_path):
-        os.remove(file_path)
+    if os.path.exists(meta.get("file_path")):
+        os.remove(meta["file_path"])
 
-    # 2. Очищаем кэш в векторной базе (Агенте)
     async with httpx.AsyncClient() as client:
         try:
-            # Отправляем запрос агенту, чтобы он удалил индексы этого файла
             await client.delete(f"{AGENT_URL}/cache/{drawing_id}")
-        except Exception as e:
-            logger.warning(f"Could not clear agent cache: {e}")
+        except:
+            pass
 
-    # 3. Удаляем запись из MongoDB (вместе с историей messages)
     await delete_drawing(drawing_id)
+    return {"message": "Удалено успешно"}
 
-    return {"message": "Всё удалено: файл, история и кэш"}
+# --- 3. WebSocket ---
 
-
-# --- 4. Прокси и Статус ---
-
-@app.get("/api/search")
-async def search_drawings(q: str, limit: int = 10, drawing_id: Optional[str] = None):
+@app.websocket("/ws/{drawing_id}")
+async def websocket_endpoint(websocket: WebSocket, drawing_id: str):
     """
-    Поиск по векторной базе.
-    Если передан drawing_id, ищем только в этом чертеже.
+    Точка входа для сокета. Клиент подключается к конкретному drawing_id
+    и ждет обновлений от системы.
     """
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        try:
-            # 1. Готовим тело запроса для Агента
-            payload = {
-                "query": q,
-                "limit": limit
-            }
+    await manager.connect(websocket, drawing_id)
+    logger.info(f"WebSocket connected for drawing: {drawing_id}")
 
-            # 2. Если ищем в конкретном чертеже, нужно достать его путь из БД
-            if drawing_id:
-                meta = await get_drawing(drawing_id)
-                if meta:
-                    payload["path"] = meta.get("file_path")
-
-            response = await client.post(f"{AGENT_URL}/search", json=payload)
-            response.raise_for_status()
-
-            return response.json()
-        except Exception as e:
-            logger.error(f"Agent search error: {e}")
-            raise HTTPException(status_code=500, detail=f"Ошибка Агента: {str(e)}")
-
-@app.get("/api/ask/status/{drawing_id}")
-async def get_ask_status(drawing_id: str):
-    meta = await get_drawing(drawing_id)
-    if not meta:
-        raise HTTPException(status_code=404, detail="Чертеж не найден")
-
-    # Возвращаем текущее состояние из БД
-    return {
-        "status": meta.get("status"),
-        "answer": meta.get("last_answer"),  # Celery пишет ответ сюда
-        "error": meta.get("error")
-    }
+    try:
+        while True:
+            # Нам не нужно ничего принимать от клиента в чате через сокеты,
+            # но мы держим соединение открытым.
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, drawing_id)
+        logger.info(f"WebSocket disconnected for drawing: {drawing_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        manager.disconnect(websocket, drawing_id)

@@ -2,57 +2,83 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 
+
 class MongoDB:
+    """
+    Класс-менеджер для управления жизненным циклом подключений к MongoDB.
+    Использует Motor для асинхронного взаимодействия.
+    """
+
     def __init__(self):
         self.client = None
         self.db = None
         self._collection = None
+        # Параметры подключения из переменных окружения (настраиваются в docker-compose)
         self.url = os.getenv("MONGO_URL", "mongodb://mongodb:27017")
         self.db_name = os.getenv("MONGO_DB", "drawings_db")
 
     async def connect(self):
-        """Асинхронная инициализация подключения"""
+        """
+        Инициализирует пул соединений с базой.
+        Вызывается один раз при старте приложения (startup_event).
+        """
         if not self.client:
-            # Создаем клиент внутри работающего event loop
             self.client = AsyncIOMotorClient(self.url)
             self.db = self.client[self.db_name]
             self._collection = self.db["drawings"]
-            print(f"Connected to MongoDB: {self.db_name}")
+            print(f"🚀 Успешное подключение к MongoDB: {self.db_name}")
 
     @property
     def collection(self):
-        """Безопасный доступ к коллекции"""
+        """Обеспечивает безопасный доступ к коллекции документов."""
         if self._collection is None:
-            raise RuntimeError("Database not connected. Call 'await db_manager.connect()' first.")
+            raise RuntimeError("База данных не подключена. Сначала вызовите 'await db_manager.connect()'")
         return self._collection
 
-# Создаем экземпляр
+
+# Глобальный экземпляр для импорта в других модулях
 db_manager = MongoDB()
 
+
 async def save_drawing(drawing: dict):
-    """Сохранение чертежа"""
+    """
+    Сохраняет метаданные чертежа (ID, путь к файлу, статус) в БД.
+    Сами изображения страниц в базу не пишутся — они генерируются бэкендом из файла.
+    """
     await db_manager.connect()
     result = await db_manager.collection.insert_one(drawing)
     return str(result.inserted_id)
 
+
 async def get_drawing(drawing_id: str):
-    """Получение чертежа по ID"""
+    """
+    Поиск чертежа. Сначала ищет по кастомному UUID (поле 'id'),
+    затем пробует стандартный системный '_id' от MongoDB.
+    """
     await db_manager.connect()
-    try:
-        query = {"id": drawing_id}
-        result = await db_manager.collection.find_one(query, {"_id": 0})
-        if not result:
-            result = await db_manager.collection.find_one({"_id": ObjectId(drawing_id)})
+
+    # 1. Поиск по нашему строковому UUID
+    result = await db_manager.collection.find_one({"id": drawing_id}, {"_id": 0})
+    if result:
         return result
+
+    # 2. Попытка поиска по системному ObjectId (если ID пришел в формате Mongo)
+    try:
+        if ObjectId.is_valid(drawing_id):
+            return await db_manager.collection.find_one({"_id": ObjectId(drawing_id)}, {"_id": 0})
     except Exception:
-        return await db_manager.collection.find_one({"id": drawing_id}, {"_id": 0})
+        pass
+
+    return None
+
 
 async def delete_drawing(drawing_id: str):
-    """Удаление чертежа из БД"""
+    """Удаляет запись о чертеже из коллекции."""
     await db_manager.connect()
-    # Удаляем по кастомному полю id (UUID)
+    # Удаляем именно по нашему UUID, который создается в бэкенде
     result = await db_manager.collection.delete_one({"id": drawing_id})
     return result.deleted_count > 0
 
-# Для обратной совместимости
+
+# Псевдоним для удобства, если где-то используется старое название
 drawings = db_manager

@@ -1,4 +1,9 @@
-celery==5.4.0
-redis==5.0.1
-pymongo==4.16.0
-requests==2.31.0
+# Task Queue & Broker
+celery>=5.4.0
+redis>=5.0.0
+
+# Database
+pymongo>=4.10.0
+
+# API & Network
+requests>=2.31.0

@@ -26,7 +26,7 @@ class MongoDB:
             self.client = AsyncIOMotorClient(self.url)
             self.db = self.client[self.db_name]
             self._collection = self.db["drawings"]
-            print(f"🚀 Успешное подключение к MongoDB: {self.db_name}")
+            print(f" Успешное подключение к MongoDB: {self.db_name}")
 
     @property
     def collection(self):
@@ -57,19 +57,14 @@ async def get_drawing(drawing_id: str):
     """
     await db_manager.connect()
 
-    # 1. Поиск по нашему строковому UUID
-    result = await db_manager.collection.find_one({"id": drawing_id}, {"_id": 0})
-    if result:
-        return result
-
-    # 2. Попытка поиска по системному ObjectId (если ID пришел в формате Mongo)
     try:
-        if ObjectId.is_valid(drawing_id):
-            return await db_manager.collection.find_one({"_id": ObjectId(drawing_id)}, {"_id": 0})
+        query = {"id": drawing_id}
+        result = await db_manager.collection.find_one(query, {"_id": 0})
+        if not result:
+            result = await db_manager.collection.find_one({"_id": ObjectId(drawing_id)})
+        return result
     except Exception:
-        pass
-
-    return None
+        return await db_manager.collection.find_one({"id": drawing_id}, {"_id": 0})
 
 
 async def delete_drawing(drawing_id: str):

@@ -1,18 +1,21 @@
-import { useParams } from 'react-router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useGetDrawingQuery } from '../../store/api/drawings';
 import image from '../../images/no image.jfif';
 import ErrorState from '../ErrorState';
 import LoadingState from '../LoadingState';
 import { formatDate } from '../../utils/formatDate';
 import rehypeSanitize from 'rehype-sanitize';
+import type { FC } from 'react';
+import type { IDrawingResponse } from '../../types/api';
 
-const Content = () => {
-    const params = useParams<{ id: string }>();
-    const { data, isError, isLoading } = useGetDrawingQuery({
-        id: params.id!,
-    });
+interface IContent {
+    data: IDrawingResponse | undefined;
+    isError: boolean;
+    isLoading: boolean;
+}
+
+const Content: FC<IContent> = ({ data, isError, isLoading }) => {
+    console.log(data);
 
     return (
         <div className="flex flex-col lg:h-full lg:overflow-hidden">

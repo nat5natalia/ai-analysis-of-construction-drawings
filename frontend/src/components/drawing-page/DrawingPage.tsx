@@ -1,29 +1,84 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { IoArrowBackSharp, IoChatbubbleEllipses } from 'react-icons/io5';
-
 import Button from '../../UI/Button';
 import { useNavigate, useParams } from 'react-router';
 import Content from './Content';
 import { MdDelete } from 'react-icons/md';
-import { useDeleteDrawingMutation } from '../../store/api/drawings';
-import { toast, ToastContainer } from 'react-toastify';
+import {
+    useAskQuestionMutation,
+    useGetDrawingQuery,
+    useLazyGetDrawingQuery,
+} from '../../store/api/drawings';
+import { ToastContainer } from 'react-toastify';
 import Chat from './Chat';
-import { useState } from 'react';
+import { useEffect, useState, type SubmitEventHandler } from 'react';
+import { useDeleteDrawing } from '../../hooks/useDeleteDrawing';
 
 const DrawingPage = () => {
     const navigate = useNavigate();
     const params = useParams<{ id: string }>();
-    const [deleteDrawing, { isLoading }] = useDeleteDrawingMutation();
-    const [isChatOpen, setIsChatOpen] = useState(false);
-    const handleDelete = async () => {
+    const { isLoading, handleDelete } = useDeleteDrawing(params.id!, navigate);
+    const {
+        data,
+        isError,
+        isLoading: isDrawingLoading,
+    } = useGetDrawingQuery(
+        {
+            id: params.id!,
+        },
+        { refetchOnMountOrArgChange: true },
+    );
+    const [triggerGetDrawing] = useLazyGetDrawingQuery();
+
+    const [askQuestion] = useAskQuestionMutation();
+    const [isThinking, setIsThinking] = useState<boolean>(false);
+    const [question, setQuestion] = useState<string>('');
+    console.log(data);
+
+    const askHandler: SubmitEventHandler<HTMLFormElement> = async (e) => {
+        e.preventDefault();
         try {
-            const result = await deleteDrawing({ id: params.id! }).unwrap();
-            console.log(result.message);
-            navigate('/feed');
-        } catch (err) {
-            console.error(err);
-            toast.error('Удаление не удалось');
+            await askQuestion({
+                id: params.id!,
+                question,
+            }).unwrap();
+            await triggerGetDrawing({ id: params.id! }).unwrap();
+        } catch (error) {
+            console.log(error);
+        } finally {
+            setQuestion('');
         }
     };
+
+    useEffect(() => {
+        if (!params.id) return;
+
+        const ws = new WebSocket(`ws://localhost:8000/ws/${params.id}`);
+
+        ws.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.status === 'processing') {
+                setIsThinking(true);
+            }
+
+            if (data.status === 'completed') {
+                setIsThinking(false);
+
+                await triggerGetDrawing({
+                    id: params.id!,
+                });
+            }
+
+            if (data.status === 'failed') {
+                setIsThinking(false);
+            }
+        };
+
+        return () => ws.close();
+    }, [params.id]);
+
+    const [isChatOpen, setIsChatOpen] = useState(false);
     return (
         <div className="w-full h-screen flex flex-col lg:flex-row relative">
             <div className="w-full lg:h-screen lg:w-7/10 bg-blue-50 flex flex-col lg:overflow-hidden">
@@ -48,11 +103,21 @@ const DrawingPage = () => {
                             <IoChatbubbleEllipses className="text-2xl" />
                         </button>
                     </div>
-                    <Content />
+                    <Content
+                        data={data}
+                        isLoading={isDrawingLoading}
+                        isError={isError}
+                    />
                 </div>
             </div>
             <div className="hidden lg:block lg:w-[30%] bg-gray-200">
-                <Chat />
+                <Chat
+                    question={question}
+                    setQuestion={setQuestion}
+                    isThinking={isThinking}
+                    askHandler={askHandler}
+                    oldMessages={data?.messages}
+                />
             </div>
             <div className="fixed inset-0 z-50 flex lg:hidden pointer-events-none">
                 <div
@@ -71,7 +136,13 @@ const DrawingPage = () => {
             ${isChatOpen ? 'translate-x-0' : 'translate-x-full'}
         `}
                 >
-                    <Chat />
+                    <Chat
+                        question={question}
+                        setQuestion={setQuestion}
+                        isThinking={isThinking}
+                        askHandler={askHandler}
+                        oldMessages={data?.messages}
+                    />
 
                     <button
                         onClick={() => setIsChatOpen(false)}

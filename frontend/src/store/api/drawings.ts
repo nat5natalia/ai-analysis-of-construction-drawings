@@ -135,6 +135,9 @@ export const drawingsApi = createApi({
                 method: 'POST',
                 body: { question },
             }),
+            invalidatesTags: (_result, _error, { id }) => [
+                { type: 'Items', id },
+            ],
         }),
 
         getAskStatus: builder.query<IGetStatus, { id: string }>({
@@ -149,6 +152,7 @@ export const {
     useSearchDrawingsQuery,
     useDeleteDrawingMutation,
     useGetDrawingQuery,
+    useLazyGetDrawingQuery,
     useAskQuestionMutation,
     useGetDescriptionQuery,
     useUploadDrawingMutation,

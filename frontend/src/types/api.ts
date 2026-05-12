@@ -1,10 +1,17 @@
+export interface IMessage {
+    role: 'user' | 'assistant';
+    content?: string;
+    text?: string;
+    ts?: string;
+}
+
 export interface IDrawingsResponse {
     total: number;
     drawings: [
         {
             id: string;
             filename: string;
-            status: string;
+            status: 'completed' | 'processing';
             uploaded_at: string;
             has_description: boolean;
         },
@@ -26,10 +33,11 @@ export interface ISimilarResponse {
 export interface IDrawingResponse {
     id: string;
     filename: string;
-    status: string;
+    status: 'completed' | 'processing';
     uploaded_at: string;
     description: string;
     has_embedding: true;
+    messages?: IMessage[];
 }
 
 export interface IUploadResponse {

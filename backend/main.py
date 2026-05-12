@@ -160,8 +160,14 @@ async def get_all_drawings(limit: int = 50, offset: int = 0):
     collection = db_manager.collection
     cursor = collection.find({}, {"_id": 0}).sort("uploaded_at", -1)
     raw_results = await cursor.skip(offset).limit(limit).to_list(length=limit)
+
+    enriched_results = []
+    for meta in raw_results:
+        enriched = await inject_image_data(meta, all_pages=True)
+        enriched_results.append(enriched)
+
     total = await collection.count_documents({})
-    return {"total": total, "drawings": raw_results}
+    return {"total": total, "drawings": enriched_results}
 
 
 @app.get("/api/drawings/{drawing_id}", response_model=DrawingResponse)

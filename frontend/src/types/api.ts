@@ -5,6 +5,12 @@ export interface IMessage {
     ts?: string;
 }
 
+export interface ImageData {
+    base64: string[];
+    content_type: string;
+    total_pages: number;
+}
+
 export interface IDrawingsResponse {
     total: number;
     drawings: [
@@ -33,6 +39,7 @@ export interface ISimilarResponse {
 export interface IDrawingResponse {
     id: string;
     filename: string;
+    image?: ImageData | null;
     status: 'completed' | 'processing';
     uploaded_at: string;
     description: string;

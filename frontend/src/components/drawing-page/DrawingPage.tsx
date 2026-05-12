@@ -18,11 +18,7 @@ const DrawingPage = () => {
     const navigate = useNavigate();
     const params = useParams<{ id: string }>();
     const { isLoading, handleDelete } = useDeleteDrawing(params.id!, navigate);
-    const {
-        data,
-        isError,
-        isLoading: isDrawingLoading,
-    } = useGetDrawingQuery(
+    const { data, isError } = useGetDrawingQuery(
         {
             id: params.id!,
         },
@@ -54,6 +50,18 @@ const DrawingPage = () => {
         if (!params.id) return;
 
         const ws = new WebSocket(`ws://localhost:8000/ws/${params.id}`);
+
+        ws.onopen = () => {
+            console.log('WS connected');
+        };
+
+        ws.onerror = (e) => {
+            console.log('WS error', e);
+        };
+
+        ws.onclose = () => {
+            console.log('WS closed');
+        };
 
         ws.onmessage = async (event) => {
             const data = JSON.parse(event.data);
@@ -103,11 +111,7 @@ const DrawingPage = () => {
                             <IoChatbubbleEllipses className="text-2xl" />
                         </button>
                     </div>
-                    <Content
-                        data={data}
-                        isLoading={isDrawingLoading}
-                        isError={isError}
-                    />
+                    <Content data={data} isError={isError} />
                 </div>
             </div>
             <div className="hidden lg:block lg:w-[30%] bg-gray-200">

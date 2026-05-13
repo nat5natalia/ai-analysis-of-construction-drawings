@@ -6,9 +6,14 @@ import rehypeSanitize from 'rehype-sanitize';
 interface IMessagesContainer {
     messages: { type: 'answer' | 'question'; body: string }[];
     isLoading: boolean;
+    bottomRef: React.RefObject<HTMLDivElement | null>;
 }
 
-const MessagesContainer: FC<IMessagesContainer> = ({ messages, isLoading }) => {
+const MessagesContainer: FC<IMessagesContainer> = ({
+    messages,
+    isLoading,
+    bottomRef,
+}) => {
     return (
         <div className="flex-1 bg-blue-100 overflow-y-auto p-4 flex flex-col gap-3">
             {messages.map((msg, index) => {
@@ -52,7 +57,9 @@ const MessagesContainer: FC<IMessagesContainer> = ({ messages, isLoading }) => {
                     </div>
                 );
             })}
+
             {isLoading && <p>Ассистент думает...</p>}
+            <div ref={bottomRef} />
         </div>
     );
 };

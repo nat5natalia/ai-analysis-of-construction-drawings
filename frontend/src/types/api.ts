@@ -1,10 +1,24 @@
+export interface IMessage {
+    role: 'user' | 'assistant';
+    content?: string;
+    text?: string;
+    ts?: string;
+}
+
+export interface ImageData {
+    base64: string[];
+    content_type: string;
+    total_pages: number;
+}
+
 export interface IDrawingsResponse {
     total: number;
     drawings: [
         {
             id: string;
             filename: string;
-            status: string;
+            image?: ImageData | null;
+            status: 'completed' | 'processing';
             uploaded_at: string;
             has_description: boolean;
         },
@@ -26,10 +40,12 @@ export interface ISimilarResponse {
 export interface IDrawingResponse {
     id: string;
     filename: string;
-    status: string;
+    image?: ImageData | null;
+    status: 'completed' | 'processing';
     uploaded_at: string;
     description: string;
     has_embedding: true;
+    messages?: IMessage[];
 }
 
 export interface IUploadResponse {

@@ -121,17 +121,24 @@ class DrawingKnowledgeManager:
     def retrieve_context(self, path: str, page: int, query: str, top_k: int = 5) -> str:
         """Поиск контекста ТОЛЬКО для текущего чертежа."""
         hash_id = self._get_drawing_hash(path, page)
-
         query_embedding = self.embed_model.generate(query)
 
+        # Поиск в векторной БД
         search_results = self.vector_db.search(query_embedding, drawing_id=hash_id, k=top_k)
 
         if not search_results:
             return "No relevant context found in RAG."
 
-        relevant_fragments = [text for text, score in search_results]
-        return "\n\n---\n\n".join(relevant_fragments)
+        # Берем первый элемент из каждого результата (текст),
+        # игнорируя остальные (score, metadata и т.д.), сколько бы их ни было.
+        relevant_fragments = []
+        for res in search_results:
+            if isinstance(res, (list, tuple)) and len(res) > 0:
+                relevant_fragments.append(str(res[0]))
+            elif isinstance(res, str):
+                relevant_fragments.append(res)
 
+        return "\n\n---\n\n".join(relevant_fragments)
     def save_heavy_analysis(self, path: str, page: int, analysis_text: str):
         hash_id = self._get_drawing_hash(path, page)
         cache_path = self.cache_dir / f"{hash_id}_heavy.txt"

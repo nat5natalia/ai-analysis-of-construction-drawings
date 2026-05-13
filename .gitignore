@@ -12,3 +12,6 @@ venv/
 .idea/
 venv311/
 dataset/
+agent_cache/
+hf_cache/
+checkpoints_data/

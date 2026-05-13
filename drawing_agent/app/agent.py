@@ -85,23 +85,51 @@ class DrawingAgent:
             "full_ocr": ocr_res
         }
 
-    async def pre_analyze(self, path: str, page: int = 0) -> Dict:
+    async def pre_analyze(self, path: str, drawing_id: Optional[str] = None, page: int = 0) -> Dict:
         await self._ensure_initialized()
+
         # Используем lock, чтобы фоновый анализ не шел одновременно с вопросами
         async with self.lock:
             try:
                 loop = asyncio.get_running_loop()
+
+                # Если drawing_id не передан, генерируем его по хешу пути (для совместимости)
+                if not drawing_id:
+                    drawing_id = self.drawing_knowledge._get_drawing_hash(path, page)
+
+                logger.info(f"Начало пре-анализа для: {path} (ID: {drawing_id})")
+
+                # 1. Загрузка и первичное кэширование (картинка, OCR)
+                # Передаем drawing_id в методы знаний, если они это поддерживают
                 drawing_data = await loop.run_in_executor(
                     None, self.drawing_knowledge.load_drawing_and_cache, path, page
                 )
 
+                # 2. Инициализация RAG (индексация текста в векторную БД)
                 self.drawing_knowledge.initialize_static_knowledge(path, page, drawing_data)
-                await self._run_heavy_operations(drawing_data["image_base64"])
 
-                logger.info(f"Фоновый анализ завершен успешно для: {path}")
+                # 3. Выполнение тяжелых операций (YOLO, OpenCV)
+                heavy_results = await self._run_heavy_operations(drawing_data["image_base64"])
+
+                # 4. Формирование и сохранение текстового отчета анализа
+                heavy_analysis_text = (
+                    f"--- РЕЗУЛЬТАТЫ ГЛУБОКОГО АНАЛИЗА ---\n"
+                    f"ДЕТЕКЦИЯ ОБЪЕКТОВ (YOLO):\n{heavy_results['yolo']}\n\n"
+                    f"ГЕОМЕТРИЯ (OpenCV):\n{heavy_results['geometry']}\n\n"
+                    f"ОТВЕРСТИЯ:\n{heavy_results['holes']}\n\n"
+                    f"ТАБЛИЦЫ:\n{heavy_results['tables']}\n\n"
+                    f"ПОЛНЫЙ ТЕКСТ:\n{heavy_results['full_ocr']}"
+                )
+
+                await loop.run_in_executor(
+                    None, self.drawing_knowledge.save_heavy_analysis, path, page, heavy_analysis_text
+                )
+
+                logger.info(f"Фоновый анализ завершен успешно для: {drawing_id}")
                 return {"success": True, "error": None}
+
             except Exception as e:
-                logger.error(f"Ошибка в pre_analyze: {e}", exc_info=True)
+                logger.error(f"Ошибка в pre_analyze для {path}: {e}", exc_info=True)
                 return {"success": False, "error": str(e)}
 
     async def run(self, path: str, question: str, thread_id: Optional[str] = None, page: int = 0) -> Dict:

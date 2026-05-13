@@ -1,18 +1,30 @@
 import { type FC } from 'react';
-import img from '../../images/no image.jfif';
+import no_img from '../../images/no image.jfif';
 import { formatDate } from '../../utils/formatDate';
 import { useNavigate } from 'react-router';
+import type { ImageData } from '../../types/api';
 
 interface IDrawing {
     drawing: {
         id: string;
         filename: string;
+        image?: ImageData | null;
         uploaded_at?: string;
     };
 }
 
 const Drawing: FC<IDrawing> = ({ drawing }) => {
     const navigate = useNavigate();
+
+    const parseBase64 = () => {
+        if (!drawing.image) return null;
+        const base64 = drawing.image.base64[0];
+        const imgSrc = `data:${drawing.image.content_type};base64,${base64}`;
+        return imgSrc;
+    };
+
+    const imageSrc = parseBase64();
+
     return (
         <div
             onClick={() => navigate(`/feed/${drawing.id}`)}
@@ -22,8 +34,8 @@ const Drawing: FC<IDrawing> = ({ drawing }) => {
         >
             <div className="flex-1 flex items-center justify-center overflow-hidden p-2">
                 <img
-                    src={img}
-                    alt="drawing"
+                    src={imageSrc !== null ? imageSrc! : no_img}
+                    alt="Загруженное изображение"
                     className="object-contain w-full h-full rounded-xl"
                 />
             </div>

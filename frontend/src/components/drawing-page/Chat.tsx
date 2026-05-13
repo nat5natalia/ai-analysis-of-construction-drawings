@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { GoDependabot } from 'react-icons/go';
 import Input from '../../UI/Input';
 import {
@@ -5,92 +6,72 @@ import {
     useRef,
     useState,
     type ChangeEventHandler,
+    type FC,
     type SubmitEventHandler,
 } from 'react';
 import Button from '../../UI/Button';
 import MessagesContainer from './MessagesContainer';
-import {
-    useAskQuestionMutation,
-    useLazyGetAskStatusQuery,
-} from '../../store/api/drawings';
-import { useParams } from 'react-router';
+import type { IMessage } from '../../types/api';
 
-const Chat = () => {
-    const [question, setQuestion] = useState<string>('');
-    const [isThinking, setIsThinking] = useState<boolean>(false);
-    const pollRef = useRef<number | null>(null);
-    const params = useParams<{ id: string }>();
+interface IChat {
+    question: string;
+    setQuestion: React.Dispatch<React.SetStateAction<string>>;
+    isThinking: boolean;
+    oldMessages?: IMessage[];
+    askHandler: SubmitEventHandler<HTMLFormElement>;
+}
 
+const Chat: FC<IChat> = ({
+    oldMessages,
+    askHandler,
+    isThinking,
+    question,
+    setQuestion,
+}) => {
     const [messages, setMessages] = useState<
         { type: 'answer' | 'question'; body: string }[]
     >([]);
-    const [askQuestion] = useAskQuestionMutation();
-    const [triggerStatusCheck] = useLazyGetAskStatusQuery();
+    const bottomRef = useRef<HTMLDivElement | null>(null);
 
     const handleChange: ChangeEventHandler<HTMLInputElement> = (e) => {
         setQuestion(e.target.value);
     };
 
-    const askHandler: SubmitEventHandler<HTMLFormElement> = async (e) => {
-        e.preventDefault();
-        if (!question.trim()) return;
-
-        const currentQuestion = question;
-        setMessages((prev) => [
-            ...prev,
-            { type: 'question', body: currentQuestion },
-        ]);
-        setQuestion('');
-        setIsThinking(true);
-
-        try {
-            await askQuestion({
-                id: params.id!,
-                question: currentQuestion,
-            }).unwrap();
-
-            pollRef.current = setInterval(async () => {
-                try {
-                    const result = await triggerStatusCheck({
-                        id: params.id!,
-                    }).unwrap();
-
-                    if (result.status === 'completed') {
-                        setMessages((prev) => [
-                            ...prev,
-                            { type: 'answer', body: result.answer },
-                        ]);
-                        setIsThinking(false);
-                        if (pollRef.current) {
-                            clearInterval(pollRef.current);
-                            pollRef.current = null;
-                        }
-                    }
-                } catch (err) {
-                    console.error('Ошибка при проверке статуса', err);
-                }
-            }, 3000);
-        } catch (error) {
-            console.error('Ошибка отправки:', error);
-            setMessages((prev) => [
-                ...prev,
-                { type: 'answer', body: 'Возникла ошибка' },
-            ]);
-            setIsThinking(false);
-        }
-    };
     useEffect(() => {
-        return () => {
-            if (pollRef.current) clearInterval(pollRef.current);
-        };
-    }, []);
+        if (oldMessages) {
+            const parsedOldMessages = oldMessages.map((mes) => {
+                if (mes.role === 'assistant' && mes.content)
+                    return { type: 'answer', body: mes.content };
+                if (mes.role === 'user' && mes.content)
+                    return { type: 'question', body: mes.content };
+            });
+            if (parsedOldMessages)
+                setMessages(
+                    parsedOldMessages as {
+                        type: 'answer' | 'question';
+                        body: string;
+                    }[],
+                );
+        }
+    }, [oldMessages]);
+
+    useEffect(() => {
+        bottomRef.current?.scrollIntoView({
+            behavior: 'smooth',
+        });
+    }, [messages, isThinking]);
+
     return (
         <div className="w-full h-full flex flex-col border-l-2 border-blue-300">
             <div className="flex h-fit bg-blue-300  items-center gap-4 pl-4 pt-2 pb-2">
                 <GoDependabot className="text-3xl" />
                 <p className="text-2xl">Чат с AI-ассистентом</p>
             </div>
-            <MessagesContainer messages={messages} isLoading={isThinking} />
+            <MessagesContainer
+                messages={messages}
+                isLoading={isThinking}
+                bottomRef={bottomRef}
+            />
             <form
                 className="flex h-max bg-blue-300 items-center p-2 gap-2"
                 onSubmit={askHandler}

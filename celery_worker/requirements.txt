@@ -1,6 +1,0 @@
-celery==5.4.0
-redis==5.0.1
-pymongo==4.16.0
-requests==2.31.0
-sentence-transformers>=2.0.0
-faiss-cpu>=1.7.4

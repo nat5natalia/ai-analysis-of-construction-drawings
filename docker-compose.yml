@@ -48,7 +48,7 @@ services:
       - ./easyocr_models:/root/.EasyOCR/model
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://drawing_agent:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 30

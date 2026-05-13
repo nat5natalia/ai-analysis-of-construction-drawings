@@ -68,7 +68,7 @@ const SearchAccordion = () => {
 
             {search.length > 0 && (
                 <div className="absolute top-full left-0 w-full bg-blue-100 shadow-lg rounded-b-2xl z-50 overflow-x-auto">
-                    <div className="flex flex-row gap-2 p-2 h-50">
+                    <div className="flex flex-row gap-2 p-2 h-52">
                         {isFetching && <LoadingState />}
                         {results.length === 0 && !isFetching && !isError && (
                             <div className="h-full w-full flex justify-center items-center">
@@ -82,7 +82,16 @@ const SearchAccordion = () => {
                             results.map((item) => (
                                 <div
                                     key={item.id}
-                                    className={`shrink-0 px-4 py-2 bg-white rounded-lg  cursor-pointer whitespace-nowrap ${isFetching ? 'opacity-30' : ''}`}
+                                    className={`
+                                       shrink-0
+                                       w-48
+                                       h-48
+                                       px-2 py-2
+                                       bg-white
+                                       rounded-lg
+                                       cursor-pointer
+                                       ${isFetching ? 'opacity-30' : ''}
+                                   `}
                                 >
                                     <Drawing drawing={item} />
                                 </div>

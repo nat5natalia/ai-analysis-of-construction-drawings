@@ -73,6 +73,9 @@ const DrawingPage = () => {
 
             if (data.status === 'failed') {
                 toast.error('Возникла ошибка обработки чертежа');
+                await triggerGetDrawing({
+                    id: params.id!,
+                });
             }
         };
 

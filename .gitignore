@@ -15,3 +15,9 @@ dataset/
 agent_cache/
 hf_cache/
 checkpoints_data/
+persistent_storage/
+project_structure.txt
+script.py
+*.db
+*.bin
+*.json

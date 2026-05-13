@@ -142,28 +142,33 @@ def process_drawing(self, drawing_id: str, question: str):
         finish_time = datetime.now(timezone.utc).isoformat()
         final_status = "completed" if not error_msg else "failed"
 
-        update_fields = {
-            "status": final_status,
-            "error": error_msg,
-            "updated_at": finish_time
-        }
-        update_op = {}
-        # Если это был первый анализ, записываем результат в техническое описание
-        if is_initial_run and answer:
-            update_fields["description"] = answer
-        # Если получен ответ, добавляем его в историю сообщений IMessage
-        elif answer:
-            update_op["$push"] = {
-                "messages": {
-                    "role": "assistant",
-                    "text": answer,
-                    "content": answer,  # Дублируем для совместимости со старыми схемами
-                    "ts": finish_time
-                }
+        update_data = {
+            "$set": {
+                "status": final_status,
+                "error": error_msg,
+                "updated_at": finish_time
             }
+        }
 
-        update_op = {"$set": update_fields}
-        db["drawings"].update_one({"id": drawing_id}, update_op)
+        if answer:
+            if is_initial_run:
+                # В БАЗУ сохраняем ТОЛЬКО в description
+                logger.info(f"Saving initial description for {drawing_id}")
+                update_data["$set"]["description"] = answer
+            else:
+                # В БАЗУ сохраняем ТОЛЬКО в массив сообщений
+                logger.info(f"Adding new message to history for {drawing_id}")
+                update_data["$push"] = {
+                    "messages": {
+                        "role": "assistant",
+                        "text": answer,
+                        "content": answer,
+                        "ts": finish_time
+                    }
+                }
+
+        # Выполняем сохранение в MongoDB
+        db["drawings"].update_one({"id": drawing_id}, update_data)
         notify_update(drawing_id, final_status, answer=answer)
 
     except Exception as e:

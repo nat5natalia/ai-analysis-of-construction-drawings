@@ -14,10 +14,14 @@ _current_drawing = None
 _ocr_reader = None
 
 def get_ocr_reader():
-    """Ленивая инициализация EasyOCR"""
     global _ocr_reader
     if _ocr_reader is None:
-        _ocr_reader = easyocr.Reader(['ru', 'en'], gpu=False)
+        # model_storage_dir указывает, где лежат веса .pth
+        _ocr_reader = easyocr.Reader(
+            ['ru', 'en'], 
+            gpu=False, 
+            model_storage_dir='/app/models/easyocr'
+        )
     return _ocr_reader
 
 def set_current_drawing(drawing_base64: str):

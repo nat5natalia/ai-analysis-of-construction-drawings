@@ -1,11 +1,30 @@
-# .dockerignore
-**/__pycache__
+# Системные папки и кэш Python
+**/.git
 **/.venv
 **/venv
-**/.git
+**/__pycache__
+**/.ipynb_checkpoints
+
+# Кэши библиотек (самые частые причины ошибок "invalid file request")
+hf_cache/
+agent_cache/
+.cache/
+.EasyOCR/
+
+# Данные и логи (тяжелые файлы, которые не нужны в образе)
 **/data
 **/outputs
-**/.ipynb_checkpoints
+dataset/
+logs/
+persistent_storage/
+
+# Файлы чертежей (чтобы не раздувать образ)
 *.pdf
 *.png
 *.jpg
+*.jpeg
+
+# --- ИСКЛЮЧЕНИЯ ---
+# Разрешаем Docker-у видеть папку с моделями, несмотря на запреты выше
+!drawing_agent/models/
+!models/

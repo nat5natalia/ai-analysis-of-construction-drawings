@@ -6,7 +6,7 @@ from omegaconf import OmegaConf
 
 @pytest.fixture
 def mock_cfg():
-    """Базовая конфигурация для тестов (с секцией run)"""
+    """Базовая конфигурация для тестов"""
     return OmegaConf.create({
         "data_dir": "./test_data",
         "model": {
@@ -66,39 +66,39 @@ def mock_tools():
 
 @pytest_asyncio.fixture(scope="function")
 async def agent(mock_cfg, mock_vector_db, mock_embedding_generator, mock_tools):
-    """Создание экземпляра DrawingAgent с моками"""
+    """Создание экземпляра DrawingAgent с базовыми моками"""
     from app.agent import DrawingAgent
 
-    with patch("app.agent.AsyncSqliteSaver") as mock_saver:
-        mock_saver.from_conn_string.return_value.__aenter__ = AsyncMock()
-        mock_saver.from_conn_string.return_value.__aexit__ = AsyncMock()
+    with patch("app.agent.build_graph") as mock_build_graph:
+        # Базовый AsyncMock графа
+        mock_graph = AsyncMock()
+        mock_build_graph.return_value = mock_graph
+        
+        with patch("app.agent.AsyncSqliteSaver") as mock_saver:
+            mock_saver.from_conn_string.return_value.__aenter__ = AsyncMock()
+            mock_saver.from_conn_string.return_value.__aexit__ = AsyncMock()
 
-        agent = DrawingAgent(mock_cfg, vector_db=mock_vector_db)
-        
-        # Мок графа LangGraph
-        agent.graph = MagicMock()
-        agent.graph.ainvoke = AsyncMock(return_value={
-            "messages": [MagicMock(content="Test answer", type="ai")]
-        })
-        
-        # Мок менеджера знаний
-        agent.drawing_knowledge = MagicMock()
-        agent.drawing_knowledge._get_drawing_hash = MagicMock(return_value="test_hash_123")
-        agent.drawing_knowledge.load_drawing_and_cache = MagicMock(return_value={
-            "image_base64": "fake_base64",
-            "ocr_text": "test ocr",
-            "width": 100,
-            "height": 100
-        })
-        agent.drawing_knowledge.get_heavy_analysis = MagicMock(return_value=None)
-        agent.drawing_knowledge.initialize_static_knowledge = MagicMock()
-        agent.drawing_knowledge.retrieve_context = MagicMock(return_value="RAG context")
-        agent.drawing_knowledge.add_interaction_to_index = MagicMock()
-        agent.drawing_knowledge.save_heavy_analysis = MagicMock()
-        
-        # Мок кэша
-        agent.cache = MagicMock()
-        agent.cache.get.return_value = None
-        agent.cache.set = MagicMock()
+            agent = DrawingAgent(mock_cfg, vector_db=mock_vector_db)
+            agent.graph = mock_graph
+            
+            # Базовые моки менеджера знаний
+            agent.drawing_knowledge = MagicMock()
+            agent.drawing_knowledge._get_drawing_hash = MagicMock(return_value="test_hash_123")
+            agent.drawing_knowledge.load_drawing_and_cache = MagicMock(return_value={
+                "image_base64": "fake_base64",
+                "ocr_text": "test ocr",
+                "width": 100,
+                "height": 100
+            })
+            agent.drawing_knowledge.get_heavy_analysis = MagicMock(return_value=None)
+            agent.drawing_knowledge.initialize_static_knowledge = MagicMock()
+            agent.drawing_knowledge.retrieve_context = MagicMock(return_value="RAG context")
+            agent.drawing_knowledge.add_interaction_to_index = MagicMock()
+            agent.drawing_knowledge.save_heavy_analysis = MagicMock()
+            
+            # Мок кэша
+            agent.cache = MagicMock()
+            agent.cache.get.return_value = None
+            agent.cache.set = MagicMock()
 
-        yield agent
+            yield agent

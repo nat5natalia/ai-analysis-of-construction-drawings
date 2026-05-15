@@ -36,35 +36,30 @@ def test_ready_endpoint_when_ready():
 
 
 def test_pre_analyze_endpoint():
-    """Исправлено: используем существующий файл из dataset"""
     response = client.post("/pre-analyze", json={
-        "path": "/app/dataset/drawing.jpg",  # ← ИЗМЕНЕНО
+        "path": "/app/dataset/drawing.jpg",
         "drawing_id": "test-uuid-123",
         "page": 0
     })
-    # Может быть 200 или 404, если файла нет
-    assert response.status_code in [200, 404]
+    assert response.status_code == 200
 
 
 def test_process_endpoint():
-    """Исправлено: используем существующий файл из dataset"""
     response = client.post("/process", json={
-        "path": "/app/dataset/drawing.jpg",  # ← ИЗМЕНЕНО
+        "path": "/app/dataset/drawing.jpg",
         "question": "Что на чертеже?",
         "page": 0
     })
-    assert response.status_code in [200, 404]
+    assert response.status_code == 200
 
 
 def test_process_endpoint_returns_400_for_empty_question():
-    """Пустой вопрос → 400 Bad Request (даже если файла нет)"""
     response = client.post("/process", json={
         "path": "/app/dataset/drawing.jpg",
         "question": "",
         "page": 0
     })
-    # Если файла нет, может быть 404, но 400 тоже возможен
-    assert response.status_code in [400, 404]
+    assert response.status_code == 400
 
 
 def test_search_endpoint():

@@ -23,7 +23,7 @@ def test_drawing_hash(manager):
 
 
 def test_retrieve_context_filtering(manager, mock_vdb):
-    """Тест находит баг: ожидается кортеж (text, score), но приходят словари"""
+    """Тест проверяет фильтрацию контекста по drawing_id"""
     hash_id = manager._get_drawing_hash("test.pdf", 0)
     mock_vdb.search.return_value = [
         {"text": "Нашел меня", "drawing_id": hash_id, "score": 0.9},
@@ -37,7 +37,7 @@ def test_retrieve_context_filtering(manager, mock_vdb):
 
         from app.drawing_cache import DrawingKnowledgeManager
         manager = DrawingKnowledgeManager(vector_db=mock_vdb, cache_dir=manager.cache_dir)
-
+        
         context = manager.retrieve_context("test.pdf", 0, "какой-то вопрос")
 
     # Проверяем, что контекст содержит нужный фрагмент

@@ -34,13 +34,14 @@ services:
       - DATASET_PATH=/app/dataset
       - DATA_DIR=/app/data
       - HF_HOME=/app/.cache/huggingface
+      - EASYOCR_MODULE_PATH=/app/.EasyOCR
     volumes:
       - ./dataset:/app/dataset
       - ./persistent_storage:/app/data
       - ./drawing_agent/models:/app/models
       - ./hf_cache:/app/.cache/huggingface
       - ./agent_cache:/app/cache/drawings
-      - ./easyocr_models:/root/.EasyOCR/model
+      - ./easyocr_cache:/app/.EasyOCR
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

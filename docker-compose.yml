@@ -39,9 +39,7 @@ services:
       - ./persistent_storage:/app/data
       - ./drawing_agent/models:/app/models
       - ./hf_cache:/app/.cache/huggingface
-      - ./hf_cache:/app/.cache
       - ./agent_cache:/app/cache/drawings
-      - ./checkpoints_data:/app/data
       - ./easyocr_models:/root/.EasyOCR/model
     restart: unless-stopped
     healthcheck:

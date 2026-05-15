@@ -66,40 +66,72 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
         "\n\nВАЖНО: Пиши максимально лаконично. Если ответ требует много места - сокращай материалы"
     )
 
-    # ИСПРАВЛЕНИЕ: Более надежная подготовка сообщений для обрезки
+    # --- ИСПРАВЛЕННЫЙ БЛОК ПОДГОТОВКИ СООБЩЕНИЙ ---
     text_only_messages = []
     for m in messages:
+        # Пропускаем ToolMessage, так как они не нужны для trim
+        if isinstance(m, ToolMessage):
+            continue
+            
         content_text = ""
-        if isinstance(m.content, str):
-            content_text = m.content
-        elif isinstance(m.content, list):
-            # Извлекаем текст, игнорируя картинки для корректного подсчета токенов
-            parts = [str(item.get("text", "")) for item in m.content if item.get("type") == "text"]
-            content_text = " ".join(parts)
-
-        # Если контент пустой (например, только картинка без текста),
-        # подставляем заглушку, чтобы trim_messages не падал
-        if not content_text.strip():
+        
+        # Безопасное извлечение контента
+        if hasattr(m, 'content'):
+            if isinstance(m.content, str):
+                content_text = m.content if m.content else "..."
+            elif isinstance(m.content, list):
+                # Извлекаем только текст, игнорируя картинки
+                text_parts = []
+                for item in m.content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "text":
+                            text_parts.append(str(item.get("text", "")))
+                    elif hasattr(item, 'get'):
+                        if item.get("type") == "text":
+                            text_parts.append(str(item.get("text", "")))
+                content_text = " ".join(text_parts) if text_parts else "..."
+        else:
             content_text = "..."
+        
+        # Если контент пустой или None
+        if not content_text or content_text.strip() == "":
+            content_text = "..."
+        
+        # Создаем копию сообщения только с текстом
+        try:
+            # Определяем тип сообщения
+            if isinstance(m, HumanMessage):
+                new_msg = HumanMessage(content=content_text)
+            elif isinstance(m, AIMessage):
+                new_msg = AIMessage(content=content_text)
+                # Сохраняем tool_calls если есть
+                if hasattr(m, "tool_calls") and m.tool_calls:
+                    new_msg.tool_calls = m.tool_calls
+            else:
+                continue  # Пропускаем неизвестные типы
+            
+            text_only_messages.append(new_msg)
+        except Exception as e:
+            logger.warning(f"Failed to create message copy: {e}")
+            continue
 
-        # Создаем копию сообщения того же типа, но только с текстом
-        new_msg = m.__class__(content=content_text)
-        if hasattr(m, "tool_calls"):  # Сохраняем tool_calls, если они были
-            new_msg.tool_calls = m.tool_calls
-        text_only_messages.append(new_msg)
-
+    # Обрезка сообщений с безопасной обработкой
     try:
-        trimmed_messages = trim_messages(
-            text_only_messages,
-            max_tokens=cfg.agent.get('max_history_tokens', 4000),
-            strategy="last",
-            token_counter=llm.get_num_tokens,
-            include_system=False,
-            start_on="human"
-        )
+        if text_only_messages:
+            trimmed_messages = trim_messages(
+                text_only_messages,
+                max_tokens=cfg.agent.get('max_history_tokens', 4000),
+                strategy="last",
+                token_counter=llm.get_num_tokens,
+                include_system=False,
+                start_on="human"
+            )
+        else:
+            trimmed_messages = []
     except Exception as e:
         logger.error(f"Trim Error: {e}")
-        trimmed_messages = text_only_messages[-5:] if len(text_only_messages) > 5 else text_only_messages
+        # Берем последние 3 сообщения как fallback
+        trimmed_messages = text_only_messages[-3:] if len(text_only_messages) > 3 else text_only_messages
 
     final_messages = [SystemMessage(content=sys_content + format_instruction)]
 

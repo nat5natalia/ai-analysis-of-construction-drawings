@@ -6,4 +6,10 @@ redis>=5.0.0
 pymongo>=4.10.0
 
 # API & Network
-requests>=2.31.0
+requests
+numpy
+faiss-cpu
+sentence-transformers
+redis
+celery
+httpx

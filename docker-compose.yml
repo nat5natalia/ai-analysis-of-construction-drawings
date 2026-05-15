@@ -30,19 +30,23 @@ services:
     container_name: drawing_agent
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app:/celery_worker
       - DATASET_PATH=/app/dataset
       - DATA_DIR=/app/data
       - HF_HOME=/app/.cache/huggingface
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db
+    depends_on:
+      - postgres
     volumes:
+      - vector_data:/app/data
       - ./dataset:/app/dataset
-      - ./persistent_storage:/app/data
+      - ./drawing_agent/app:/app/app
       - ./drawing_agent/models:/app/models
       - ./hf_cache:/app/.cache/huggingface
-      - ./hf_cache:/app/.cache
       - ./agent_cache:/app/cache/drawings
-      - ./checkpoints_data:/app/data
+      - ./checkpoints_data:/app/checkpoints
       - ./easyocr_models:/root/.EasyOCR/model
+      - ./celery_worker:/celery_worker
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -63,14 +67,19 @@ services:
       - AGENT_URL=http://drawing_agent:8000
       - DATASET_PATH=/app/dataset
       - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db 
     volumes:
+      - vector_data:/app/data
       - ./dataset:/app/dataset
+      - ./celery_worker:/app
     depends_on:
       redis:
         condition: service_healthy
       mongodb:
         condition: service_healthy
       drawing_agent:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 
@@ -89,6 +98,7 @@ services:
       - PYTHONPATH=/app
     volumes:
       - ./dataset:/app/dataset
+      - vector_data:/app/data
     depends_on:
       redis:
         condition: service_healthy
@@ -107,6 +117,27 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+  
+  postgres:
+    image: postgres:15-alpine 
+    container_name: drawing_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: langgraph_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
   mongo_data:
+    driver: local
+  postgres_data:
+    driver: local
+  vector_data:
+    driver: local

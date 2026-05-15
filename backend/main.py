@@ -56,18 +56,15 @@ app.add_middleware(
 # --- Pydantic Схемы ---
 class MessageSchema(BaseModel):
     role: str
-    text: Optional[str] = None    # Делаем Optional, чтобы старые записи не ломали API
-    content: Optional[str] = None # Поле, которое уже есть в твоей БД
+    text: Optional[str] = None
+    content: Optional[str] = None
     ts: str
-
-    # Добавляем валидатор, чтобы если есть только content, он попадал в text
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
 class DrawingImage(BaseModel):
     base64: List[str]
     total_pages: int
     content_type: str = "image/png"
-
 
 class DrawingResponse(BaseModel):
     id: str
@@ -80,11 +77,9 @@ class DrawingResponse(BaseModel):
     messages: List[MessageSchema] = []
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
-
 class DrawingsListResponse(BaseModel):
     total: int
     drawings: List[DrawingResponse]
-
 
 class AskRequest(BaseModel):
     question: str
@@ -106,7 +101,6 @@ async def redis_listener():
                     data = json.loads(message["data"])
                     d_id = data.get("drawing_id")
 
-                    # Если в данных есть реальный ответ — формируем объект сообщения
                     if data.get("event") == "new_message" and data.get("answer"):
                         data["message"] = {
                             "role": "assistant",
@@ -116,9 +110,7 @@ async def redis_listener():
                         }
 
                     if d_id:
-                        # Отправляем в сокет (менеджер сам проверит наличие подписки)
                         await manager.send_to_drawing(data, d_id)
-
                 except Exception as e:
                     logger.error(f"Error processing Redis message: {e}")
             await asyncio.sleep(0.01)
@@ -136,52 +128,39 @@ async def startup_event():
 
 
 # --- Вспомогательная логика ---
-
 async def inject_image_data(drawing_meta: dict, all_pages: bool = False) -> dict:
     file_path = drawing_meta.get("file_path")
-
     if file_path and os.path.exists(file_path):
         try:
             loop = asyncio.get_event_loop()
-            # Конвертируем PDF в список base64
             pages = await loop.run_in_executor(executor, file_to_images_base64, file_path)
-
             if pages:
-                # Если all_pages=True — отдаем всё, иначе — только первую страницу
                 result_pages = pages if all_pages else pages[:1]
-
                 drawing_meta["image"] = {
                     "base64": result_pages,
-                    "total_pages": len(pages),  # Оставляем реальное кол-во страниц для информации
+                    "total_pages": len(pages),
                     "content_type": "image/png"
                 }
             else:
                 drawing_meta["image"] = None
-
         except Exception as e:
             logger.warning(f"Image injection failed for {drawing_meta.get('id')}: {e}")
             drawing_meta["image"] = None
     else:
         drawing_meta["image"] = None
-
     return drawing_meta
 
-# --- API Эндпоинты ---
 
+# --- API Эндпоинты ---
 @app.get("/api/drawings", response_model=DrawingsListResponse)
 async def get_all_drawings(limit: int = 50, offset: int = 0):
     collection = db_manager.collection
     cursor = collection.find({}, {"_id": 0}).sort("uploaded_at", -1)
     raw_results = await cursor.skip(offset).limit(limit).to_list(length=limit)
-
-    # Обогащаем каждый чертеж данными изображений
     enriched_results = []
     for meta in raw_results:
-        # Ставим all_pages=True, если фронту нужны все страницы сразу в списке
-        # Если список тяжелый, можно оставить False (будет только мета)
         enriched = await inject_image_data(meta, all_pages=True)
         enriched_results.append(enriched)
-
     total = await collection.count_documents({})
     return {"total": total, "drawings": enriched_results}
 
@@ -195,33 +174,61 @@ async def get_drawing_by_id(drawing_id: str):
     return enriched
 
 
+@app.post("/search")
+async def search_alias(request: dict):
+    """Прокси-эндпоинт для POST /search"""
+    q = request.get("q", "")
+    limit = request.get("limit", 10)
+    offset = request.get("offset", 0)
+    logger.info(f"POST /search прокси -> GET /api/search с q={q}")
+    return await search_drawings(q, limit, offset)
+
+
 @app.get("/api/search")
 async def search_drawings(q: str, limit: int = 10, offset: int = 0):
     results = []
     seen_ids = set()
 
-    # --- 1. Попытка векторного поиска через Агента ---
+    # --- 1. Векторный поиск через Агента ---
     try:
         async with httpx.AsyncClient() as client:
-            agent_payload = {
-                "query": q,
-                "limit": limit * 2,
-                "drawing_id": None
-            }
-            agent_resp = await client.post(
-                f"{AGENT_URL}/search",
-                json=agent_payload,
+            agent_resp = await client.get(
+                f"{AGENT_URL}/api/search",
+                params={"q": q, "limit": limit * 2},
                 timeout=15.0
             )
             if agent_resp.status_code == 200:
                 agent_data = agent_resp.json()
                 agent_results = agent_data.get("results", [])
-
+                
                 for match in agent_results:
-                    d_id = match.get("drawing_id")
+                    # Извлекаем drawing_id из разных форматов
+                    d_id = None
+                    score = 0.0
+                    description_text = ""
+                    
+                    if isinstance(match, dict):
+                        # Прямой доступ к ключу
+                        d_id = match.get("drawing_id")
+                        score = match.get("score", 0.0)
+                        description_text = match.get("description", "")
+                        
+                        # Если не нашли drawing_id, возможно результат в другом формате
+                        if not d_id and "drawing_id" in match:
+                            d_id = match["drawing_id"]
+                        # Если результат - словарь с текстом (как в вашем случае)
+                        if not d_id and "text" in match and isinstance(match["text"], dict):
+                            d_id = match["text"].get("drawing_id")
+                            description_text = match["text"].get("text", "")
+                    elif isinstance(match, str):
+                        d_id = match
+                        score = 1.0
+                    else:
+                        continue
+                    
                     if not d_id or d_id in seen_ids:
                         continue
-
+                    
                     meta = await get_drawing(d_id)
                     if meta:
                         seen_ids.add(d_id)
@@ -229,30 +236,26 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
                         results.append({
                             "id": enriched.get("id"),
                             "filename": enriched.get("filename"),
-                            "description": (match.get("text") or enriched.get("description", ""))[:200] + "...",
-                            "score": match.get("score", 0.0),
+                            "description": description_text[:200] if description_text else (enriched.get("description", "")[:200]),
+                            "score": score,
                             "thumbnail_url": enriched.get("thumbnail_url"),
                             "image": enriched.get("image"),
                             "search_type": "vector"
                         })
     except Exception as e:
-        logger.error(f"Vector search failed, switching to regex: {e}")
+        logger.error(f"Vector search failed: {e}")
 
-    # --- 2. Fallback: Регулярки в MongoDB (если векторный поиск дал 0 или упал) ---
+    # --- 2. Fallback: Regex поиск ---
     if not results:
         logger.info(f"Vector search returned 0 results for '{q}'. Starting Regex search...")
         try:
-            # Создаем нечувствительное к регистру регулярное выражение
             regex_query = {"$regex": q, "$options": "i"}
-
-            # Ищем совпадения либо в названии файла, либо в описании
             mongo_query = {
                 "$or": [
                     {"filename": regex_query},
                     {"description": regex_query}
                 ]
             }
-
             collection = db_manager.collection
             cursor = collection.find(mongo_query, {"_id": 0}).sort("uploaded_at", -1)
             db_matches = await cursor.skip(offset).limit(limit).to_list(length=limit)
@@ -266,7 +269,7 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
                         "id": enriched.get("id"),
                         "filename": enriched.get("filename"),
                         "description": (enriched.get("description") or "Описание отсутствует")[:200] + "...",
-                        "score": 1.0,  # Условный скор для регулярок
+                        "score": 1.0,
                         "thumbnail_url": enriched.get("thumbnail_url"),
                         "image": enriched.get("image"),
                         "search_type": "regex"
@@ -280,6 +283,7 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
         "query": q,
         "is_fallback": len(results) > 0 and any(r.get("search_type") == "regex" for r in results)
     }
+
 
 @app.post("/api/upload", response_model=DrawingResponse)
 async def upload_drawing(file: UploadFile = File(...)):
@@ -314,6 +318,7 @@ async def upload_drawing(file: UploadFile = File(...)):
     celery_process_task.delay(drawing_id, "Сделай подробное техническое описание чертежа.")
     return await inject_image_data(drawing, all_pages=True)
 
+
 @app.post("/api/ask/{drawing_id}")
 async def ask_question(drawing_id: str, request: AskRequest):
     meta = await get_drawing(drawing_id)
@@ -321,10 +326,9 @@ async def ask_question(drawing_id: str, request: AskRequest):
         raise HTTPException(status_code=404, detail="Чертеж не найден")
 
     ts = datetime.now(timezone.utc).isoformat()
-    # Формируем сообщение строго по интерфейсу IMessage
     new_msg = {
         "role": "user",
-        "text": request.question,    # Добавляем текстовое поле
+        "text": request.question,
         "content": request.question,
         "ts": ts
     }
@@ -337,12 +341,11 @@ async def ask_question(drawing_id: str, request: AskRequest):
         }
     )
 
-    # Отправляем в сокет сразу, чтобы пользователь видел свой вопрос
     await manager.send_to_drawing({
         "drawing_id": drawing_id,
         "status": "processing",
         "event": "new_message",
-        "message": new_msg # Передаем объект сообщения
+        "message": new_msg
     }, drawing_id)
 
     celery_process_task.delay(drawing_id, request.question)
@@ -374,7 +377,6 @@ async def websocket_endpoint(websocket: WebSocket, drawing_id: str):
     await manager.connect(websocket, drawing_id)
     try:
         while True:
-            # Ожидание данных от клиента (keep-alive или входящие команды)
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket, drawing_id)

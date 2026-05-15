@@ -84,8 +84,12 @@ class DrawingKnowledgeManager:
 
         return cache_data
 
-    def initialize_static_knowledge(self, path: str, page: int, static_data: Dict[str, Any]):
+    def initialize_static_knowledge(self, path: str, page: int, static_data: Dict[str, Any], drawing_id: str = None):
+        """Индексация OCR текста чертежа"""
         hash_id = self._get_drawing_hash(path, page)
+        
+        # Используем drawing_id из MongoDB, если передан
+        actual_id = drawing_id if drawing_id else hash_id
 
         if hash_id in self._indexed_drawings:
             return
@@ -99,51 +103,60 @@ class DrawingKnowledgeManager:
         for i, chunk in enumerate(chunks):
             content = f"[OCR Chunk {i}] {chunk}"
             embedding = self.embed_model.generate(content)
-            self.vector_db.add(content, embedding, drawing_id=hash_id)
+            # Сохраняем с actual_id (drawing_id из MongoDB)
+            self.vector_db.add(actual_id, embedding)
 
         self._indexed_drawings.add(hash_id)
-        logger.info(f"Чертеж {hash_id} проиндексирован.")
+        logger.info(f"Чертеж {actual_id} проиндексирован.")
 
-    def add_interaction_to_index(self, path: str, page: int, question: str, answer: str):
-        if not answer: return
+    def add_interaction_to_index(self, path: str, page: int, question: str, answer: str, drawing_id: str = None):
+        """Индексация взаимодействия вопрос-ответ"""
+        if not answer:
+            return
 
         hash_id = self._get_drawing_hash(path, page)
-        interaction_text = f"Previous Q: {question} | Previous A: {answer}"
+        actual_id = drawing_id if drawing_id else hash_id
+        
+        # Создаём уникальный ID для взаимодействия
+        interaction_id = f"{actual_id}_interaction_{int(datetime.now().timestamp())}"
+        text_for_embedding = f"Previous Q: {question} | Previous A: {answer}"
+        
+        embedding = self.embed_model.generate(text_for_embedding)
+        self.vector_db.add(interaction_id, embedding)
 
-        embedding = self.embed_model.generate(interaction_text)
-        self.vector_db.add(interaction_text, embedding, drawing_id=hash_id)
-
+        # Логируем в файл
         log_path = self.cache_dir / f"{hash_id}_sessions.jsonl"
         with open(log_path, "a", encoding="utf-8") as f:
             log_entry = {"timestamp": datetime.now().isoformat(), "q": question, "a": answer}
             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
     def retrieve_context(self, path: str, page: int, query: str, top_k: int = 5) -> str:
-        """Поиск контекста ТОЛЬКО для текущего чертежа."""
+        """Поиск контекста в векторной БД"""
         hash_id = self._get_drawing_hash(path, page)
         query_embedding = self.embed_model.generate(query)
 
         # Поиск в векторной БД
-        search_results = self.vector_db.search(query_embedding, drawing_id=hash_id, k=top_k)
+        search_results = self.vector_db.search(query_embedding, k=top_k)
 
         if not search_results:
             return "No relevant context found in RAG."
 
-        # Берем первый элемент из каждого результата (текст),
-        # игнорируя остальные (score, metadata и т.д.), сколько бы их ни было.
+        # Фильтруем результаты (ищем по hash_id или по связанным ID)
         relevant_fragments = []
-        for res in search_results:
-            if isinstance(res, (list, tuple)) and len(res) > 0:
-                relevant_fragments.append(str(res[0]))
-            elif isinstance(res, str):
-                relevant_fragments.append(res)
+        for doc_id, score in search_results:
+            # Проверяем, относится ли результат к текущему чертежу
+            if doc_id.startswith(hash_id) or hash_id in doc_id:
+                relevant_fragments.append(f"Document: {doc_id}, Score: {score:.4f}")
+
+        if not relevant_fragments:
+            return "No relevant context found for this drawing."
 
         return "\n\n---\n\n".join(relevant_fragments)
+
     def save_heavy_analysis(self, path: str, page: int, analysis_text: str):
         hash_id = self._get_drawing_hash(path, page)
         cache_path = self.cache_dir / f"{hash_id}_heavy.txt"
 
-        # Убедимся, что папка существует (на случай очистки)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(cache_path, "w", encoding="utf-8") as f:
@@ -153,9 +166,8 @@ class DrawingKnowledgeManager:
     def get_heavy_analysis(self, path: str, page: int) -> Optional[str]:
         hash_id = self._get_drawing_hash(path, page)
         cache_path = self.cache_dir / f"{hash_id}_heavy.txt"
-
+        
         if cache_path.exists():
-            logger.info(f"Тяжелый анализ загружен из кэша: {hash_id}")
             with open(cache_path, "r", encoding="utf-8") as f:
                 return f.read()
         return None

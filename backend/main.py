@@ -92,38 +92,37 @@ class AskRequest(BaseModel):
 
 # --- Фоновая задача Redis ---
 async def redis_listener():
-    """Слушает уведомления от Celery и транслирует их в WebSocket"""
     logger.info(f"Connecting to Redis Pub/Sub at {REDIS_URL}...")
-    r = redis.from_url(REDIS_URL, decode_responses=True)
+    r = redis.from_url(REDIS_URL, decode_responses=True, health_check_interval=30)
     pubsub = r.pubsub()
 
     try:
         await pubsub.subscribe("drawing_updates")
-        while True:
-            message = await pubsub.get_message()
-            if message and message["type"] == "message":
-                try:
-                    data = json.loads(message["data"])
-                    d_id = data.get("drawing_id")
+        logger.info("Subscribed to drawing_updates channel")
 
-                    # Если в данных есть реальный ответ — формируем объект сообщения
-                    if data.get("event") == "new_message" and data.get("answer"):
-                        data["message"] = {
-                            "role": "assistant",
-                            "text": data["answer"],
-                            "content": data["answer"],
-                            "ts": datetime.now(timezone.utc).isoformat()
-                        }
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
 
-                    if d_id:
-                        # Отправляем в сокет (менеджер сам проверит наличие подписки)
-                        await manager.send_to_drawing(data, d_id)
+            try:
+                data = json.loads(message["data"])
+                d_id = data.get("drawing_id")
 
-                except Exception as e:
-                    logger.error(f"Error processing Redis message: {e}")
-            await asyncio.sleep(0.01)
+                if data.get("event") == "new_message" and data.get("answer"):
+                    data["message"] = {
+                        "role": "assistant",
+                        "text": data["answer"],
+                        "content": data["answer"],
+                        "ts": datetime.now(timezone.utc).isoformat()
+                    }
+
+                if d_id:
+                    await manager.send_to_drawing(data, d_id)
+            except Exception as e:
+                logger.error(f"Error processing Redis message: {e}")
+
     except Exception as e:
-        logger.critical(f"Redis Listener failure: {e}")
+        logger.critical(f"Redis Listener connection lost: {e}")
     finally:
         await pubsub.unsubscribe("drawing_updates")
         await r.close()
@@ -137,27 +136,31 @@ async def startup_event():
 
 # --- Вспомогательная логика ---
 
-async def inject_image_data(drawing_meta: dict, all_pages: bool = False) -> dict:
-    file_path = drawing_meta.get("file_path")
+async def inject_image_data(drawing_meta: dict, all_pages: bool = False, include_images: bool = True) -> dict:
+    """
+    Обогащает метаданные изображениями.
+    Если include_images=False, base64 данные не генерируются (используется для списков).
+    """
+    if not include_images:
+        drawing_meta["image"] = None
+        return drawing_meta
 
+    file_path = drawing_meta.get("file_path")
     if file_path and os.path.exists(file_path):
         try:
             loop = asyncio.get_event_loop()
-            # Конвертируем PDF в список base64
+            # Тяжелая операция: чтение файла и конвертация в base64
             pages = await loop.run_in_executor(executor, file_to_images_base64, file_path)
 
             if pages:
-                # Если all_pages=True — отдаем всё, иначе — только первую страницу
                 result_pages = pages if all_pages else pages[:1]
-
                 drawing_meta["image"] = {
                     "base64": result_pages,
-                    "total_pages": len(pages),  # Оставляем реальное кол-во страниц для информации
+                    "total_pages": len(pages),
                     "content_type": "image/png"
                 }
             else:
                 drawing_meta["image"] = None
-
         except Exception as e:
             logger.warning(f"Image injection failed for {drawing_meta.get('id')}: {e}")
             drawing_meta["image"] = None
@@ -177,9 +180,7 @@ async def get_all_drawings(limit: int = 50, offset: int = 0):
     # Обогащаем каждый чертеж данными изображений
     enriched_results = []
     for meta in raw_results:
-        # Ставим all_pages=True, если фронту нужны все страницы сразу в списке
-        # Если список тяжелый, можно оставить False (будет только мета)
-        enriched = await inject_image_data(meta, all_pages=True)
+        enriched = await inject_image_data(meta, all_pages=False, include_images=False)
         enriched_results.append(enriched)
 
     total = await collection.count_documents({})
@@ -374,9 +375,12 @@ async def websocket_endpoint(websocket: WebSocket, drawing_id: str):
     await manager.connect(websocket, drawing_id)
     try:
         while True:
-            # Ожидание данных от клиента (keep-alive или входящие команды)
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
     except WebSocketDisconnect:
-        manager.disconnect(websocket, drawing_id)
-    except Exception:
+        logger.info(f"WebSocket disconnected for drawing {drawing_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
         manager.disconnect(websocket, drawing_id)

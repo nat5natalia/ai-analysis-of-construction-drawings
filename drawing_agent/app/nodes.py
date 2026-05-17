@@ -35,59 +35,54 @@ async def preprocess_node(state: AgentState, cfg: DictConfig) -> AgentState:
 
 async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
     """
-    Основной узел агента: формирует промпт, обрезает историю и вызывает LLM.
+    Основной узел агента: очищает историю от метаданных БД, 
+    прикрепляет чертеж ТОЛЬКО к последнему вопросу, обрезает контекст и вызывает LLM.
     """
     llm = get_llm(cfg)
 
     heavy_data = state.get("heavy_analysis", "Данные пре-анализа отсутствуют.")
     rag_data = state.get("context", "Дополнительный контекст не найден.")
+    
+    # 1. Формируем чистый системный промпт (Краткость + ГОСТы)
     sys_content = get_final_system_prompt(heavy_data, rag_data)
-
-    messages = state.get("messages", [])
-    user_query = ""
-
-    # Безопасный поиск последнего вопроса пользователя
-    for m in reversed(messages):
-        if isinstance(m, HumanMessage):
-            if isinstance(m.content, str):
-                user_query = m.content
-                break
-            elif isinstance(m.content, list):
-                user_query = " ".join([str(item.get("text", "")) for item in m.content if item.get("type") == "text"])
-                break
-
-    is_detailed = any(word in user_query.lower() for word in ["подробно", "анализ", "опиши", "расскажи"])
-
     format_instruction = (
-        "\n\nСТРУКТУРА ОТВЕТА:"
-        "\n1. ПРЯМОЙ КРАТКИЙ ОТВЕТ (максимум 2-3 предложения)."
-        f"\n2. {'РАЗВЕРНУТЫЙ АНАЛИЗ' if is_detailed else 'ТЕХНИЧЕСКИЕ ПОДРОБНОСТИ'} (если уместно)."
-        "\n3. ТАБЛИЦА ГОСТ/СНиП."
-        "\n\nВАЖНО: Пиши максимально лаконично. Если ответ требует много места - сокращай материалы"
+        "\n\nПРАВИЛА ОФОРМЛЕНИЯ ОТВЕТА:\n"
+        "1. Отвечай максимально КРАТКО и строго по существу. Никакой «воды» и общих вводных фраз.\n"
+        "2. Структура: Сначала прямой технический ответ (2-3 предложения), затем краткие детали.\n"
+        "3. В самом конце ответа ОБЯЗАТЕЛЬНО выведи таблицу или список применимых ГОСТов и СНиП.\n"
+        "Если информации на чертеже мало — не выдумывай, пиши только то, что видишь."
     )
 
-    # ИСПРАВЛЕНИЕ: Более надежная подготовка сообщений для обрезки
+    messages = state.get("messages", [])
+    
+    # 2. КРИСТАЛЬНАЯ ОЧИСТКА: Маппим историю из БД/Стейта в чистые объекты LangChain
+    # Полностью убираем ts, id, status и прочие метаданные, съедающие токены
     text_only_messages = []
     for m in messages:
+        if isinstance(m, SystemMessage):
+            continue  # Старые системные инструкции нам не нужны, мы добавим свежую
+            
+        # Извлекаем только текст
         content_text = ""
         if isinstance(m.content, str):
             content_text = m.content
         elif isinstance(m.content, list):
-            # Извлекаем текст, игнорируя картинки для корректного подсчета токенов
             parts = [str(item.get("text", "")) for item in m.content if item.get("type") == "text"]
             content_text = " ".join(parts)
 
-        # Если контент пустой (например, только картинка без текста),
-        # подставляем заглушку, чтобы trim_messages не падал
-        if not content_text.strip():
-            content_text = "..."
+        if not content_text.strip() and not hasattr(m, "tool_calls"):
+            continue # Пропускаем пустые сообщения без вызовов инструментов
 
-        # Создаем копию сообщения того же типа, но только с текстом
-        new_msg = m.__class__(content=content_text)
-        if hasattr(m, "tool_calls"):  # Сохраняем tool_calls, если они были
-            new_msg.tool_calls = m.tool_calls
-        text_only_messages.append(new_msg)
+        # Строгое сохранение типов без мусора
+        if isinstance(m, HumanMessage) or (isinstance(m, dict) and m.get("role") == "user"):
+            text_only_messages.append(HumanMessage(content=content_text))
+        elif isinstance(m, AIMessage) or (isinstance(m, dict) and m.get("role") in ["assistant", "agent"]):
+            text_only_messages.append(AIMessage(content=content_text, tool_calls=getattr(m, "tool_calls", None)))
+        elif isinstance(m, ToolMessage) or (isinstance(m, dict) and m.get("role") == "tool"):
+            t_id = getattr(m, "tool_call_id", "") or m.get("tool_call_id", "")
+            text_only_messages.append(ToolMessage(content=content_text, tool_call_id=t_id))
 
+    # 3. БЕЗОПАСНАЯ ОБРЕЗКА: Контролируем лимит контекста истории
     try:
         trimmed_messages = trim_messages(
             text_only_messages,
@@ -95,44 +90,55 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
             strategy="last",
             token_counter=llm.get_num_tokens,
             include_system=False,
-            start_on="human"
+            start_on="human"  # Автоматически режет оторванные ToolMessage сверху
         )
     except Exception as e:
-        logger.error(f"Trim Error: {e}")
-        trimmed_messages = text_only_messages[-5:] if len(text_only_messages) > 5 else text_only_messages
+        logger.error(f"Trim Error (fallback to slice): {e}")
+        # Если trim_messages упал из-за нарушенной последовательности, берем последние сообщения вручную
+        trimmed_messages = text_only_messages[-6:] if len(text_only_messages) > 6 else text_only_messages
 
+    # 4. СБОРКА ИТОГОВОГО ПАКЕТА: Системный промпт идет первым
     final_messages = [SystemMessage(content=sys_content + format_instruction)]
 
-    # Находим последний HumanMessage для прикрепления картинки
+    # Находим индекс последнего HumanMessage в уже ОБРЕЗАННОЙ истории
     last_human_idx = -1
     for i, msg in enumerate(trimmed_messages):
         if isinstance(msg, HumanMessage):
             last_human_idx = i
 
+    # 5. ИНЖЕКЦИЯ ЧЕРТЕЖА: Клеим base64 ТОЛЬКО к последнему вопросу
     for i, msg in enumerate(trimmed_messages):
         if i == last_human_idx and state.get("current_drawing"):
-            # Очистка base64 и безопасное формирование контента
             raw_b64 = state["current_drawing"]
+            # Очищаем префиксы фронтенда, если они прилетели
             clean_b64 = raw_b64.split('base64,')[-1] if 'base64,' in raw_b64 else raw_b64
-
-            text_val = msg.content if isinstance(msg.content, str) else "Проанализируй этот чертеж."
-
+            
             multimodal_msg = HumanMessage(
                 content=[
-                    {"type": "text", "text": text_val},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{clean_b64}"}}
+                    {"type": "text", "text": msg.content},
+                    {
+                        "type": "image_url", 
+                        "image_url": {
+                            "url": f"data:image/png;base64,{clean_b64}",
+                            "detail": "high"  # Максимальное качество для распознавания мелких элементов чертежа
+                        }
+                    }
                 ]
             )
             final_messages.append(multimodal_msg)
         else:
             final_messages.append(msg)
 
+    # 6. ВЫЗОВ МОДЕЛИ
     try:
-        response = await llm.ainvoke(final_messages)
+        response = await llm.ainvoke(
+            final_messages, 
+            max_tokens=cfg.agent.get('max_response_tokens', 2048)
+        )
         return {"messages": [response]}
     except Exception as e:
         logger.error(f"LLM Invocation Error: {e}")
-        return {"messages": [AIMessage(content="Ошибка при вызове LLM. Попробуйте сократить запрос.")]}
+        return {"messages": [AIMessage(content="Ошибка при анализе чертежа. Пожалуйста, повторите запрос.")]}
 
 async def tools_node(state: AgentState) -> AgentState:
     """

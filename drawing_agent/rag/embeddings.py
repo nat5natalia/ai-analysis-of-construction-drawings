@@ -4,7 +4,13 @@ from typing import List, Union
 
 class EmbeddingGenerator:
     def __init__(self, model_name='all-MiniLM-L6-v2'):
-        self.model = SentenceTransformer(model_name)
+        local_model_path = "/app/models/transformers/all-MiniLM-L6-v2"
+        try:
+            # Сначала пробуем загрузить из локальной папки
+            self.model = SentenceTransformer(local_model_path)
+        except Exception:
+            # Если не вышло (например, при запуске вне докера), пробуем по имени
+            self.model = SentenceTransformer(model_name)
 
     def generate(self, text: str) -> List[float]:
         if not text or not text.strip():

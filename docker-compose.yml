@@ -25,29 +25,22 @@ services:
 
   drawing_agent:
     build:
-      context: .
-      dockerfile: drawing_agent/Dockerfile
+      # МЕНЯЕМ КОНТЕКСТ НА ПАПКУ АГЕНТА
+      context: ./drawing_agent
+      dockerfile: Dockerfile
     container_name: drawing_agent
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - PYTHONPATH=/app:/celery_worker
-      - DATASET_PATH=/app/dataset
-      - DATA_DIR=/app/data
-      - HF_HOME=/app/.cache/huggingface
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db
-      - EASYOCR_MODULE_PATH=/app/.EasyOCR
-    depends_on:
-      - postgres
+      - PYTHONPATH=/app
+      - TRANSFORMERS_OFFLINE=1
+      - HF_DATASETS_OFFLINE=1
+      - HF_HOME=/app/models/transformers
     volumes:
       - vector_data:/app/data
       - ./dataset:/app/dataset
-      - ./drawing_agent/app:/app/app
+      - ./persistent_storage:/app/data
+      # Монтируем модели из папки внутри drawing_agent
       - ./drawing_agent/models:/app/models
-      - ./hf_cache:/app/.cache/huggingface
-      - ./agent_cache:/app/cache/drawings
-      - ./checkpoints_data:/app/checkpoints
-      - ./easyocr_models:/root/.EasyOCR/model
-      - ./celery_worker:/celery_worker
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

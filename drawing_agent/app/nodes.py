@@ -17,6 +17,20 @@ from app.instructor.schemas import DrawingAnalysis
 logger = logging.getLogger(__name__)
 
 
+def estimate_message_tokens(messages: List[BaseMessage]) -> int:
+    total_chars = 0
+    for message in messages:
+        content = getattr(message, "content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            total_chars += sum(len(str(item.get("text", item))) for item in content)
+        else:
+            total_chars += len(str(content))
+
+    return max(1, total_chars // 4)
+
+
 async def preprocess_node(state: AgentState, cfg: DictConfig) -> AgentState:
     """
     Подготовительный узел: проверяет наличие чертежа и готовит метаданные контекста.
@@ -89,7 +103,7 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
             text_only_messages,
             max_tokens=cfg.agent.get('max_history_tokens', 4000),
             strategy="last",
-            token_counter=llm.get_num_tokens,
+            token_counter=estimate_message_tokens,
             include_system=False,
             start_on="human"  # Автоматически режет оторванные ToolMessage сверху
         )

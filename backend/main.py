@@ -124,7 +124,7 @@ async def redis_listener():
     """Слушает уведомления от Celery и транслирует их в WebSocket"""
     while True:
         logger.info(f"Connecting to Redis Pub/Sub at {REDIS_URL}...")
-        r = redis.from_url(REDIS_URL, decode_responses=True)
+        r = redis.from_url(REDIS_URL, decode_responses=True, health_check_interval=30)
         pubsub = r.pubsub()
 
         try:
@@ -167,15 +167,23 @@ async def redis_listener():
                 await r.close()
             except Exception as e:
                 logger.warning(f"Redis connection close failed: {e}")
-
         await asyncio.sleep(5)
 
 # --- Вспомогательная логика ---
-async def inject_image_data(drawing_meta: dict, all_pages: bool = False) -> dict:
+async def inject_image_data(drawing_meta: dict, all_pages: bool = False, include_images: bool = True) -> dict:
+    """
+    Обогащает метаданные изображениями.
+    Если include_images=False, base64 данные не генерируются (используется для списков).
+    """
+    if not include_images:
+        drawing_meta["image"] = None
+        return drawing_meta
+
     file_path = drawing_meta.get("file_path")
     if file_path and os.path.exists(file_path):
         try:
             loop = asyncio.get_event_loop()
+            # Тяжелая операция: чтение файла и конвертация в base64
             pages = await loop.run_in_executor(executor, file_to_images_base64, file_path)
             if pages:
                 result_pages = pages if all_pages else pages[:1]
@@ -202,7 +210,7 @@ async def get_all_drawings(limit: int = 50, offset: int = 0):
     raw_results = await cursor.skip(offset).limit(limit).to_list(length=limit)
     enriched_results = []
     for meta in raw_results:
-        enriched = await inject_image_data(meta, all_pages=True)
+        enriched = await inject_image_data(meta, all_pages=False, include_images=False)
         enriched_results.append(enriched)
     total = await collection.count_documents({})
     return {"total": total, "drawings": enriched_results}
@@ -479,9 +487,9 @@ async def websocket_endpoint(websocket: WebSocket, drawing_id: str):
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")
-
     except WebSocketDisconnect:
-        manager.disconnect(websocket, drawing_id)
-
-    except Exception:
+        logger.info(f"WebSocket disconnected for drawing {drawing_id}")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+    finally:
         manager.disconnect(websocket, drawing_id)

@@ -9,7 +9,7 @@ def get_llm(cfg: DictConfig = None):
     base_url = 'https://llm.ai-expert-opinion.ru/v1'
     temperature = 0.1
     max_tokens = 2000
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY")
     if cfg and hasattr(cfg, 'model'):
         model = cfg.model.get('name', model)
         base_url = cfg.model.get('base_url', base_url)

@@ -35,6 +35,7 @@ services:
       - DATA_DIR=/app/data
       - HF_HOME=/app/.cache/huggingface
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db
+      - EASYOCR_MODULE_PATH=/app/.EasyOCR
     depends_on:
       - postgres
     volumes:

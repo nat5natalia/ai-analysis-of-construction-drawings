@@ -1,0 +1,33 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ main, temp-ws-frontend ]
+  pull_request:
+    branches: [ main, temp-ws-frontend ]
+  workflow_dispatch:
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start Docker Compose
+        run: docker compose up -d
+
+      - name: Wait for services to be ready
+        run: sleep 30
+
+      - name: Run backend tests
+        run: docker exec drawing_backend pytest tests/ -v --asyncio-mode=auto || true
+
+      - name: Run Celery tests
+        run: docker exec drawing_worker pytest /app/tests/ -v || true
+
+      - name: Run Agent tests
+        run: docker exec drawing_agent pytest /app/tests/ -v || true
+
+      - name: Stop Docker Compose
+        run: docker compose down

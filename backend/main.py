@@ -375,10 +375,13 @@ async def delete_drawing_by_id(drawing_id: str):
 @app.websocket("/ws/{drawing_id}")
 async def websocket_endpoint(websocket: WebSocket, drawing_id: str):
     await manager.connect(websocket, drawing_id)
+
     try:
         while True:
             await websocket.receive_text()
+
     except WebSocketDisconnect:
         manager.disconnect(websocket, drawing_id)
+
     except Exception:
         manager.disconnect(websocket, drawing_id)

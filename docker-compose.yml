@@ -32,11 +32,11 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - PYTHONPATH=/app
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db
       - TRANSFORMERS_OFFLINE=1
       - HF_DATASETS_OFFLINE=1
       - HF_HOME=/app/models/transformers
     volumes:
-      - vector_data:/app/data
       - ./dataset:/app/dataset
       - ./persistent_storage:/app/data
       # Монтируем модели из папки внутри drawing_agent
@@ -63,7 +63,6 @@ services:
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db 
     volumes:
-      - vector_data:/app/data
       - ./dataset:/app/dataset
       - ./celery_worker:/app
     depends_on:
@@ -92,7 +91,6 @@ services:
       - PYTHONPATH=/app
     volumes:
       - ./dataset:/app/dataset
-      - vector_data:/app/data
     depends_on:
       redis:
         condition: service_healthy
@@ -132,6 +130,4 @@ volumes:
   mongo_data:
     driver: local
   postgres_data:
-    driver: local
-  vector_data:
     driver: local

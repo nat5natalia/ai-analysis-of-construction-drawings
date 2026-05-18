@@ -35,7 +35,14 @@ class VectorDB:
         self.index = None
         self.metadata = []
 
-    def add(self, text: str, embedding: List[float], drawing_id: str):
+    def add(
+        self,
+        text: str,
+        embedding: List[float],
+        drawing_id: str,
+        page: Optional[int] = None,
+        kind: str = "ocr_chunk"
+    ):
         # Обязательно приводим drawing_id к строке для консистентности
         drawing_id = str(drawing_id)
 
@@ -52,7 +59,9 @@ class VectorDB:
         self.index.add(vec)
         self.metadata.append({
             "text": text,
-            "drawing_id": drawing_id
+            "drawing_id": drawing_id,
+            "page": page,
+            "kind": kind
         })
         self._save()
 
@@ -61,6 +70,69 @@ class VectorDB:
             faiss.write_index(self.index, self.index_path)
             with open(self.metadata_path, "w", encoding="utf-8") as f:
                 json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+
+    def delete_by_drawing_id(self, drawing_id: str) -> int:
+        """
+        Удаляет все векторы и метаданные, связанные с drawing_id.
+        Пересобирает индекс FAISS из оставшихся векторов.
+        Возвращает количество удаленных записей.
+        """
+        drawing_id = str(drawing_id)
+
+        if self.index is None or self.index.ntotal == 0:
+            return 0
+
+        # Находим индексы элементов, которые нужно оставить, и те, что нужно удалить
+        keep_indices = []
+        new_metadata = []
+        removed_count = 0
+
+        for i, meta in enumerate(self.metadata):
+            if meta.get('drawing_id') == drawing_id:
+                removed_count += 1
+            else:
+                keep_indices.append(i)
+                new_metadata.append(meta)
+
+        # Если ничего не нашли для удаления, выходим
+        if removed_count == 0:
+            return 0
+
+        # Если удалили вообще всё — сбрасываем базу в ноль
+        if not keep_indices:
+            self._reset_state()
+            # Принудительно чистим файлы на диске, чтобы не оставалось старых данных
+            if os.path.exists(self.index_path):
+                os.remove(self.index_path)
+            if os.path.exists(self.metadata_path):
+                os.remove(self.metadata_path)
+            logger.info(f"Все векторы для drawing_id {drawing_id} удалены. Индекс очищен.")
+            return removed_count
+
+        # Извлекаем оставшиеся векторы из старого индекса
+        dimension = self.index.d
+        remaining_vectors = []
+        for idx in keep_indices:
+            # Восстанавливаем вектор по его позиции i
+            vec = self.index.reconstruct(idx)
+            remaining_vectors.append(vec)
+
+        # Пересобираем массив векторов
+        remaining_vectors_np = np.array(remaining_vectors, dtype=np.float32)
+
+        # Создаем новый чистый индекс той же размерности
+        new_index = faiss.IndexFlatIP(dimension)
+        new_index.add(remaining_vectors_np)
+
+        # Обновляем состояние объекта
+        self.index = new_index
+        self.metadata = new_metadata
+
+        # Сохраняем обновленный индекс на диск
+        self._save()
+
+        logger.info(f"Удалено {removed_count} векторов для drawing_id {drawing_id}. Индекс успешно пересобран. Осталось векторов: {self.index.ntotal}")
+        return removed_count
 
     def search(self, query_embedding: List[float], drawing_id: Optional[str] = None, k: int = 5) -> List[Dict]:
         if self.index is None or self.index.ntotal == 0:
@@ -87,6 +159,8 @@ class VectorDB:
                 results.append({
                     "text": meta['text'],
                     "drawing_id": meta['drawing_id'],
+                    "page": meta.get("page"),
+                    "kind": meta.get("kind", "ocr_chunk"),
                     "score": float(dist)
                 })
 

@@ -103,8 +103,14 @@ class DrawingKnowledgeManager:
         for i, chunk in enumerate(chunks):
             content = f"[OCR Chunk {i}] {chunk}"
             embedding = self.embed_model.generate(content)
-            # Сохраняем с actual_id (drawing_id из MongoDB)
-            self.vector_db.add(actual_id, embedding)
+            # Передаем сам текст content, чтобы он сохранился в метаданных.
+            self.vector_db.add(
+                text=content,
+                embedding=embedding,
+                drawing_id=actual_id,
+                page=page,
+                kind="ocr_chunk"
+            )
 
         self._indexed_drawings.add(hash_id)
         logger.info(f"Чертеж {actual_id} проиндексирован.")
@@ -117,12 +123,16 @@ class DrawingKnowledgeManager:
         hash_id = self._get_drawing_hash(path, page)
         actual_id = drawing_id if drawing_id else hash_id
         
-        # Создаём уникальный ID для взаимодействия
-        interaction_id = f"{actual_id}_interaction_{int(datetime.now().timestamp())}"
         text_for_embedding = f"Previous Q: {question} | Previous A: {answer}"
         
         embedding = self.embed_model.generate(text_for_embedding)
-        self.vector_db.add(interaction_id, embedding)
+        # Сохраняем историю вопросов-ответов с привязкой к чертежу.
+        self.vector_db.add(
+            text=text_for_embedding,
+            embedding=embedding,
+            drawing_id=actual_id,
+            kind="qa_interaction"
+        )
 
         # Логируем в файл
         log_path = self.cache_dir / f"{hash_id}_sessions.jsonl"
@@ -132,7 +142,6 @@ class DrawingKnowledgeManager:
 
     def retrieve_context(self, path: str, page: int, query: str, top_k: int = 5) -> str:
         """Поиск контекста в векторной БД"""
-        hash_id = self._get_drawing_hash(path, page)
         query_embedding = self.embed_model.generate(query)
 
         # Поиск в векторной БД
@@ -141,17 +150,12 @@ class DrawingKnowledgeManager:
         if not search_results:
             return "No relevant context found in RAG."
 
-        # Фильтруем результаты (ищем по hash_id или по связанным ID)
-        relevant_fragments = []
-        for doc_id, score in search_results:
-            # Проверяем, относится ли результат к текущему чертежу
-            if doc_id.startswith(hash_id) or hash_id in doc_id:
-                relevant_fragments.append(f"Document: {doc_id}, Score: {score:.4f}")
-
-        if not relevant_fragments:
+        # Собираем контекст из реальных текстовых фрагментов, найденных в БД.
+        context_chunks = [res["text"] for res in search_results if "text" in res]
+        if not context_chunks:
             return "No relevant context found for this drawing."
 
-        return "\n\n---\n\n".join(relevant_fragments)
+        return "\n---\n".join(context_chunks)
 
     def save_heavy_analysis(self, path: str, page: int, analysis_text: str):
         hash_id = self._get_drawing_hash(path, page)

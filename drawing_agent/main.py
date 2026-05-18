@@ -9,19 +9,7 @@ from typing import Optional
 
 from app.agent import DrawingAgent
 from rag.vectors import VectorDB
-try:
-    from celery_worker.vector_db import vector_db
-    from celery_worker.ds import compute_embedding
-except ModuleNotFoundError:
-    import sys
-    import os
-    # Добавляем путь к celery_worker (который будет смонтирован через volume)
-    sys.path.insert(0, '/celery_worker')
-    from vector_db import vector_db
-    from ds import compute_embedding
-
-from pymongo import MongoClient
-import numpy as np
+from rag.embeddings import EmbeddingGenerator
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -32,20 +20,18 @@ logger = logging.getLogger(__name__)
 # Глобальные переменные для ресурсов
 agent_instance: Optional[DrawingAgent] = None
 cfg_global: Optional[DictConfig] = None
-vector_db_global = None
+vector_db = VectorDB(index_path="data/faiss_index.bin", metadata_path="data/faiss_metadata.json")
+embedding_gen = EmbeddingGenerator()
 
 
 # --- Lifespan: управление жизненным циклом приложения ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global agent_instance, vector_db_global, cfg_global
+    global agent_instance, cfg_global
     logger.info("Initializing Drawing Agent resources...")
     try:
-        # Инициализируем векторную БД
-        vector_db_global = VectorDB()
-
         # Создаем экземпляр агента.
-        agent_instance = DrawingAgent(cfg_global, vector_db=vector_db_global)
+        agent_instance = DrawingAgent(cfg_global, vector_db=vector_db)
 
         logger.info("Drawing Agent instance created and ready for requests.")
     except Exception as e:
@@ -65,6 +51,8 @@ app = FastAPI(title="Drawing Agent API", lifespan=lifespan)
 class AnalysisRequest(BaseModel):
     path: str
     question: str
+    # Добавляем поле, чтобы агент не терял UUID из MongoDB
+    drawing_id: Optional[str] = None
     thread_id: Optional[str] = None
     page: int = 0
 
@@ -150,51 +138,38 @@ async def pre_analyze_drawing(req: PreAnalyzeRequest):
     
 
 @app.get("/api/search")
-async def search_drawings(q: str, limit: int = 10, offset: int = 0):
-    """
-    Поиск по локальной векторной базе FAISS (прямой доступ, без агента).
-    """
-    
+async def search_drawings(q: str, limit: int = 5):
+    """Поиск по локальной векторной базе FAISS."""
     logger.info(f"🔍 [SEARCH] Local FAISS search: query='{q}', limit={limit}")
     q = q.strip()
     if not q:
-        return {"success": True, "results": []}
+        return []
     
     try:
-        global vector_db
-        global compute_embedding
-        # Вычисляем эмбеддинг запроса
-        embedding = compute_embedding(q)
-        emb_np = np.array(embedding)
-        emb_np = emb_np / np.linalg.norm(emb_np)
-        
-        # Ищем в FAISS
-        results = vector_db.search(emb_np.tolist(), k=limit)
-        
-        # Получаем данные из MongoDB
-        client = MongoClient("mongodb://drawing_mongo:27017/")
-        db = client['drawings_db']
-        
-        output = []
-        for doc_id, score in results:
-            doc = db.drawings.find_one({"id": doc_id})
-            if doc:
-                output.append({
-                    "drawing_id": doc_id,
-                    "score": score,
-                    "description": doc.get("description", "")[:300],
-                    "filename": doc.get("filename", "")
-                })
-        
-        client.close()
-        
-        logger.info(f" [SEARCH] Found {len(output)} results")
-        return {"success": True, "results": output}
+        query_embedding = embedding_gen.generate(q)
+        results = vector_db.search(query_embedding, k=limit)
+        logger.info(f" [SEARCH] Found {len(results)} results")
+        return results
         
     except Exception as e:
         logger.error(f"Search error: {e}", exc_info=True)
-        return {"success": False, "error": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
     
+@app.delete("/cache/{drawing_id}")
+async def delete_drawing_cache(drawing_id: str):
+    try:
+        # Вызываем метод пересборки индекса без этого чертежа
+        removed_vectors = vector_db.delete_by_drawing_id(drawing_id)
+        return {
+            "status": "deleted",
+            "drawing_id": drawing_id,
+            "removed_vectors_count": removed_vectors
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при очистке кэша вектора для чертежа {drawing_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during cache deletion")
+
+
 @app.post("/search")  # ← добавляем то, чего не хватает
 async def search_compat(request: dict):
     """
@@ -223,6 +198,7 @@ async def process_drawing(req: AnalysisRequest):
         result = await agent_instance.run(
             path=path,
             question=req.question,
+            drawing_id=req.drawing_id,
             thread_id=req.thread_id,
             page=req.page
         )

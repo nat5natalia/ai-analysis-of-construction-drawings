@@ -98,12 +98,6 @@ class DrawingAgent:
 
     async def _init_knowledge_base(self):
         """Инициализация базы знаний"""
-        # Всегда используем vector_db из celery_worker
-        import sys
-        sys.path.insert(0, '/celery_worker')
-        from vector_db import vector_db
-        self.vector_db = vector_db
-    
         self.drawing_knowledge = DrawingKnowledgeManager(vector_db=self.vector_db)
         logger.info("Knowledge base initialized")
 
@@ -212,13 +206,22 @@ class DrawingAgent:
             if drawing_data.get("ocr_text"):
                 text_for_embedding += f"\n{drawing_data['ocr_text']}"
             
-            embedding = self.drawing_knowledge.embed_model.generate(text_for_embedding)
-            
             import numpy as np
-            embedding = embedding / np.linalg.norm(embedding)
+            embedding = np.array(
+                self.drawing_knowledge.embed_model.generate(text_for_embedding),
+                dtype=np.float32
+            )
+            norm = np.linalg.norm(embedding)
+            if norm > 0:
+                embedding = embedding / norm
             
-            # Правильно: передаём только drawing_id и embedding
-            self.vector_db.add(drawing_id, embedding.tolist())
+            self.vector_db.add(
+                text=text_for_embedding,
+                embedding=embedding.tolist(),
+                drawing_id=drawing_id,
+                page=drawing_data.get("page"),
+                kind="description"
+            )
             
             logger.info(f"✅ Embedding сохранен для drawing_id: {drawing_id}")
             return True
@@ -269,7 +272,7 @@ class DrawingAgent:
         question: str, 
         thread_id: Optional[str] = None, 
         page: int = 0,
-        drawing_id: str = None
+        drawing_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Выполнение запроса к агенту"""
         await self._ensure_initialized()

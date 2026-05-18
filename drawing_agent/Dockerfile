@@ -2,27 +2,37 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 1. Системные зависимости
+# 1. Системные зависимости (добавлен git на случай подтягивания пакетов)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libgomp1 poppler-utils curl \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 libgomp1 poppler-utils curl git \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Установка библиотек (используем относительный путь .)
-COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-RUN pip install numpy faiss-cpu sentence-transformers pymongo redis celery httpx
+# 2. Обновляем pip
+RUN pip install --no-cache-dir --upgrade pip
 
-# 3. КОПИРУЕМ ВСЁ (Код и модели уже должны быть в drawing_agent/)
-# Точка копирует всё содержимое папки drawing_agent в /app
+# 3. Установка чистого CPU PyTorch (Вот здесь магия скорости)
+# ДЛЯ ЛОКАЛЬНОГО CPU ЗАПУСКА:
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# (Когда будете деплоить на GPU-сервер, просто замените строку выше на:
+# RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121)
+
+# 4. Установка Ultralytics (он увидит готовый CPU-torch и не будет качать CUDA)
+RUN pip install --no-cache-dir "ultralytics>=8.2.0"
+
+# 5. Установка остальных зависимостей из requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 6. КОПИРУЕМ ВСЁ (Код и модели)
 COPY . .
 
-# 4. Настройка прав (после копирования!)
+# 7. Настройка прав
 RUN mkdir -p logs dataset persistent_storage /app/models && \
     useradd -m appuser && \
     chown -R appuser:appuser /app
 
-# 5. Оффлайн-конфиг
+# 8. Оффлайн-конфиг
 ENV PYTHONPATH=/app
 ENV HF_HOME=/app/models/transformers
 ENV SENTENCE_TRANSFORMERS_HOME=/app/models/transformers

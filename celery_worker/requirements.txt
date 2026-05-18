@@ -7,9 +7,3 @@ pymongo>=4.10.0
 
 # API & Network
 requests
-numpy
-faiss-cpu
-sentence-transformers
-redis
-celery
-httpx

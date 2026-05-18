@@ -1,6 +1,7 @@
-﻿import pytest
-import os
+import pytest
+
 from db import db_manager
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -15,15 +16,14 @@ async def test_upload_drawing_success(client):
     """Загрузка корректного PDF-файла"""
     pdf_content = b"%PDF-1.4 test content"
     files = {"file": ("drawing.pdf", pdf_content, "application/pdf")}
-    
+
     response = await client.post("/api/upload", files=files)
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "processing"
     assert "id" in data
-    
-    # Проверка, что запись появилась в БД
+
     db_item = await db_manager.collection.find_one({"id": data["id"]})
     assert db_item is not None
     assert db_item["filename"] == "drawing.pdf"
@@ -45,21 +45,17 @@ async def test_get_all_drawings_empty(client):
 
 
 async def test_delete_drawing(client):
-    """Загрузка → проверка → удаление чертежа"""
-    # 1. Загружаем
+    """Загрузка -> проверка -> удаление чертежа"""
     files = {"file": ("to_delete.pdf", b"content", "application/pdf")}
     upload_resp = await client.post("/api/upload", files=files)
     assert upload_resp.status_code == 200
     drawing_id = upload_resp.json()["id"]
 
-    # 2. Проверяем, что он есть
     get_resp = await client.get(f"/api/drawings/{drawing_id}")
     assert get_resp.status_code == 200
 
-    # 3. Удаляем
     del_resp = await client.delete(f"/api/drawings/{drawing_id}")
     assert del_resp.status_code == 200
 
-    # 4. Проверяем, что его больше нет
     get_resp2 = await client.get(f"/api/drawings/{drawing_id}")
     assert get_resp2.status_code == 404

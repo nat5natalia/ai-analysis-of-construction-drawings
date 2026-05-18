@@ -4,6 +4,9 @@ import httpx
 import logging
 import asyncio
 import json
+import hashlib
+import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -11,7 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict
+from pymongo.errors import DuplicateKeyError
+from pydantic import BaseModel, ConfigDict, Field
 
 # Импорты локальных модулей
 from db import db_manager, save_drawing, get_drawing, delete_drawing
@@ -36,10 +40,20 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 executor = ThreadPoolExecutor(max_workers=4)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db_manager.connect()
+    asyncio.create_task(redis_listener())
+    logger.info("Backend services started")
+    yield
+
+
 app = FastAPI(
     title="Анализ строительных чертежей",
     description="Оптимизированная версия 1.7.2: Исправлена передача ответов в WebSocket",
-    version="1.7.2"
+    version="1.7.2",
+    lifespan=lifespan
 )
 
 app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
@@ -75,6 +89,7 @@ class DrawingResponse(BaseModel):
     thumbnail_url: Optional[str] = None
     image: Optional[DrawingImage] = None
     messages: List[MessageSchema] = []
+    standards: List[str] = Field(default_factory=list)
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
 class DrawingsListResponse(BaseModel):
@@ -85,47 +100,75 @@ class AskRequest(BaseModel):
     question: str
 
 
+def extract_standards_from_text(text: str) -> List[str]:
+    if not text:
+        return []
+
+    pattern = r"\b(?:ГОСТ|СНиП|СП)\s*[РR]?\s*[\d.\-–]+(?:-\d{2,4})?\b"
+    matches = re.findall(pattern, text, flags=re.IGNORECASE)
+
+    seen = set()
+    result = []
+    for item in matches:
+        normalized = re.sub(r"\s+", " ", item.strip())
+        key = normalized.lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(normalized)
+
+    return result
+
+
 # --- Фоновая задача Redis ---
 async def redis_listener():
     """Слушает уведомления от Celery и транслирует их в WebSocket"""
-    logger.info(f"Connecting to Redis Pub/Sub at {REDIS_URL}...")
-    r = redis.from_url(REDIS_URL, decode_responses=True)
-    pubsub = r.pubsub()
+    while True:
+        logger.info(f"Connecting to Redis Pub/Sub at {REDIS_URL}...")
+        r = redis.from_url(REDIS_URL, decode_responses=True)
+        pubsub = r.pubsub()
 
-    try:
-        await pubsub.subscribe("drawing_updates")
-        while True:
-            message = await pubsub.get_message()
-            if message and message["type"] == "message":
-                try:
-                    data = json.loads(message["data"])
-                    d_id = data.get("drawing_id")
+        try:
+            await pubsub.subscribe("drawing_updates")
+            logger.info("Redis Pub/Sub listener subscribed to drawing_updates")
 
-                    if data.get("event") == "new_message" and data.get("answer"):
-                        data["message"] = {
-                            "role": "assistant",
-                            "text": data["answer"],
-                            "content": data["answer"],
-                            "ts": datetime.now(timezone.utc).isoformat()
-                        }
+            async for message in pubsub.listen():
+                if message and message["type"] == "message":
+                    try:
+                        data = json.loads(message["data"])
+                        d_id = data.get("drawing_id")
 
-                    if d_id:
-                        await manager.send_to_drawing(data, d_id)
-                except Exception as e:
-                    logger.error(f"Error processing Redis message: {e}")
-            await asyncio.sleep(0.01)
-    except Exception as e:
-        logger.critical(f"Redis Listener failure: {e}")
-    finally:
-        await pubsub.unsubscribe("drawing_updates")
-        await r.close()
+                        if data.get("event") == "new_message" and data.get("answer"):
+                            data["message"] = {
+                                "role": "assistant",
+                                "text": data["answer"],
+                                "content": data["answer"],
+                                "ts": datetime.now(timezone.utc).isoformat()
+                            }
 
-@app.on_event("startup")
-async def startup_event():
-    await db_manager.connect()
-    asyncio.create_task(redis_listener())
-    logger.info("Backend services started")
+                        if d_id:
+                            await manager.send_to_drawing(data, d_id)
+                    except Exception as e:
+                        logger.error(f"Error processing Redis message: {e}")
+        except asyncio.CancelledError:
+            logger.info("Redis Pub/Sub listener stopped")
+            raise
+        except Exception as e:
+            logger.critical(f"Redis Listener failure: {e}. Reconnecting in 5 seconds...")
+        finally:
+            try:
+                await pubsub.unsubscribe("drawing_updates")
+            except Exception as e:
+                logger.warning(f"Redis Pub/Sub unsubscribe failed: {e}")
+            try:
+                await pubsub.close()
+            except Exception as e:
+                logger.warning(f"Redis Pub/Sub close failed: {e}")
+            try:
+                await r.close()
+            except Exception as e:
+                logger.warning(f"Redis connection close failed: {e}")
 
+        await asyncio.sleep(5)
 
 # --- Вспомогательная логика ---
 async def inject_image_data(drawing_meta: dict, all_pages: bool = False) -> dict:
@@ -170,19 +213,30 @@ async def get_drawing_by_id(drawing_id: str):
     meta = await get_drawing(drawing_id)
     if not meta:
         raise HTTPException(status_code=404, detail="Чертеж не найден")
+
+    if "standards" not in meta:
+        status = str(meta.get("status", "")).lower()
+        if status == "completed":
+            texts = []
+
+            if meta.get("description"):
+                texts.append(meta["description"])
+
+            for msg in meta.get("messages", []):
+                content = msg.get("text") or msg.get("content")
+                if content:
+                    texts.append(content)
+
+            meta["standards"] = extract_standards_from_text("\n".join(texts))
+            await db_manager.collection.update_one(
+                {"id": drawing_id},
+                {"$set": {"standards": meta["standards"]}}
+            )
+        else:
+            meta["standards"] = []
+
     enriched = await inject_image_data(meta, all_pages=True)
     return enriched
-
-
-@app.post("/search")
-async def search_alias(request: dict):
-    """Прокси-эндпоинт для POST /search"""
-    q = request.get("q", "")
-    limit = request.get("limit", 10)
-    offset = request.get("offset", 0)
-    logger.info(f"POST /search прокси -> GET /api/search с q={q}")
-    return await search_drawings(q, limit, offset)
-
 
 @app.get("/api/search")
 async def search_drawings(q: str, limit: int = 10, offset: int = 0):
@@ -199,7 +253,7 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
             )
             if agent_resp.status_code == 200:
                 agent_data = agent_resp.json()
-                agent_results = agent_data.get("results", [])
+                agent_results = agent_data if isinstance(agent_data, list) else agent_data.get("results", [])
                 
                 for match in agent_results:
                     # Извлекаем drawing_id из разных форматов
@@ -211,7 +265,7 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
                         # Прямой доступ к ключу
                         d_id = match.get("drawing_id")
                         score = match.get("score", 0.0)
-                        description_text = match.get("description", "")
+                        description_text = match.get("description") or match.get("text", "")
                         
                         # Если не нашли drawing_id, возможно результат в другом формате
                         if not d_id and "drawing_id" in match:
@@ -287,12 +341,24 @@ async def search_drawings(q: str, limit: int = 10, offset: int = 0):
 
 @app.post("/api/upload", response_model=DrawingResponse)
 async def upload_drawing(file: UploadFile = File(...)):
+    content = await file.read()
+    file_hash = hashlib.sha256(content).hexdigest()
+
+    await db_manager.connect()
+    existing_drawing = await db_manager.collection.find_one({"file_hash": file_hash}, {"_id": 0})
+    if existing_drawing:
+        logger.info(
+            "Обнаружен дубликат чертежа. Хэш: %s. Возвращаем существующий ID: %s",
+            file_hash,
+            existing_drawing.get("id")
+        )
+        return await inject_image_data(existing_drawing, all_pages=True)
+
     drawing_id = str(uuid.uuid4())
     ext = os.path.splitext(file.filename)[1]
     save_path = os.path.join(UPLOAD_DIR, f"{drawing_id}{ext}")
     thumb_path = os.path.join(UPLOAD_DIR, f"{drawing_id}_thumb.jpg")
 
-    content = await file.read()
     with open(save_path, "wb") as f:
         f.write(content)
 
@@ -309,12 +375,35 @@ async def upload_drawing(file: UploadFile = File(...)):
         "status": "processing",
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "file_path": save_path,
+        "file_hash": file_hash,
         "thumbnail_url": thumbnail_url,
         "messages": [],
         "description": None
     }
 
-    await save_drawing(drawing)
+    try:
+        await save_drawing(drawing)
+    except Exception as e:
+        for f in [save_path, thumb_path]:
+            if f and os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
+
+        if not isinstance(e, DuplicateKeyError):
+            raise HTTPException(status_code=500, detail=str(e))
+
+        existing_drawing = await db_manager.collection.find_one({"file_hash": file_hash}, {"_id": 0})
+        if existing_drawing:
+            logger.info(
+                "Параллельная загрузка дубликата. Хэш: %s. Возвращаем существующий ID: %s",
+                file_hash,
+                existing_drawing.get("id")
+            )
+            return await inject_image_data(existing_drawing, all_pages=True)
+        raise
+
     celery_process_task.delay(drawing_id, "Сделай подробное техническое описание чертежа.")
     return await inject_image_data(drawing, all_pages=True)
 
@@ -358,15 +447,24 @@ async def delete_drawing_by_id(drawing_id: str):
     if not meta:
         raise HTTPException(status_code=404, detail="Чертеж не найден")
 
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(f"{AGENT_URL}/cache/{drawing_id}", timeout=10.0)
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Не удалось очистить векторный кэш чертежа. Агент вернул: {response.text}"
+                )
+    except (httpx.RequestError, httpx.TimeoutException) as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"ИИ-Агент недоступен или не успел пересобрать индекс: {str(e)}. Удаление отменено."
+        )
+
     for f in [meta.get("file_path"), os.path.join(UPLOAD_DIR, f"{drawing_id}_thumb.jpg")]:
         if f and os.path.exists(f):
             os.remove(f)
-
-    async with httpx.AsyncClient() as client:
-        try:
-            await client.delete(f"{AGENT_URL}/cache/{drawing_id}", timeout=2.0)
-        except:
-            pass
 
     await delete_drawing(drawing_id)
     return {"message": "Удалено успешно", "id": drawing_id}
@@ -378,7 +476,9 @@ async def websocket_endpoint(websocket: WebSocket, drawing_id: str):
 
     try:
         while True:
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
 
     except WebSocketDisconnect:
         manager.disconnect(websocket, drawing_id)

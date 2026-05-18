@@ -26,6 +26,12 @@ class MongoDB:
             self.client = AsyncIOMotorClient(self.url)
             self.db = self.client[self.db_name]
             self._collection = self.db["drawings"]
+            await self._collection.create_index(
+                "file_hash",
+                unique=True,
+                sparse=True,
+                name="unique_file_hash"
+            )
             print(f" Успешное подключение к MongoDB: {self.db_name}")
 
     @property

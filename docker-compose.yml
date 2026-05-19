@@ -31,7 +31,7 @@ services:
     environment:
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - AGENT_DEVICE=${AGENT_DEVICE:-auto}
       - TRANSFORMERS_OFFLINE=1
       - HF_DATASETS_OFFLINE=1
@@ -60,6 +60,7 @@ services:
       - AGENT_URL=http://drawing_agent:8000
       - DATASET_PATH=/app/dataset
       - PYTHONPATH=/app
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db 
     volumes:
       - ./dataset:/app/dataset
@@ -88,6 +89,7 @@ services:
       - DATASET_PATH=/app/dataset
       - AGENT_URL=http://drawing_agent:8000
       - PYTHONPATH=/app
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - ./dataset:/app/dataset
     depends_on:

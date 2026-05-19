@@ -23,7 +23,7 @@ services:
 
   drawing_agent:
     build:
-      context: ./drawing_agent
+      context: .
       dockerfile: Dockerfile
       args:
         TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}

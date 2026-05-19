@@ -16,6 +16,8 @@ jobs:
 
       - name: Start Docker Compose
         run: docker compose up -d
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
       - name: Wait for services to be ready
         run: sleep 30

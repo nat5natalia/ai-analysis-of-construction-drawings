@@ -25,7 +25,7 @@ jobs:
       - name: Build and push drawing agent
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./drawing_agent
           file: ./drawing_agent/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/drawing-agent:latest

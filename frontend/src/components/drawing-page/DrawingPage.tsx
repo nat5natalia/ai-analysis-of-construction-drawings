@@ -19,6 +19,7 @@ const DrawingPage = () => {
     const params = useParams<{ id: string }>();
     const [question, setQuestion] = useState<string>('');
     const { isLoading, handleDelete } = useDeleteDrawing(params.id!, navigate);
+    const [pendingRequest, setPendingRequest] = useState<boolean>(false);
     const { data, isError, refetch } = useGetDrawingQuery(
         {
             id: params.id!,
@@ -48,6 +49,7 @@ const DrawingPage = () => {
     const askHandler: SubmitEventHandler<HTMLFormElement> = async (e) => {
         e.preventDefault();
         try {
+            setPendingRequest(true);
             await askQuestion({
                 id: params.id!,
                 question,
@@ -56,6 +58,7 @@ const DrawingPage = () => {
         } catch (error) {
             console.log(error);
         } finally {
+            setPendingRequest(false);
             setQuestion('');
         }
     };
@@ -96,7 +99,9 @@ const DrawingPage = () => {
                         data
                             ? data.status === 'processing'
                                 ? true
-                                : false
+                                : pendingRequest
+                                  ? true
+                                  : false
                             : true
                     }
                     askHandler={askHandler}
@@ -127,7 +132,9 @@ const DrawingPage = () => {
                             data
                                 ? data.status === 'processing'
                                     ? true
-                                    : false
+                                    : pendingRequest
+                                      ? true
+                                      : false
                                 : true
                         }
                         askHandler={askHandler}

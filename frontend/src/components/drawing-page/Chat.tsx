@@ -86,7 +86,7 @@ const Chat: FC<IChat> = ({
                 <Button
                     disabled={!question || isThinking}
                     type="submit"
-                    content="Спросить"
+                    content={isThinking ? 'Загрузка...' : 'Спросить'}
                     className="w-2/10 bg-blue-100 disabled:cursor-not-allowed"
                 />
             </form>

@@ -96,7 +96,7 @@ const Content: FC<IContent> = ({ data, isError }) => {
             <div className="mt-4 flex flex-col gap-2 lg:flex-1 lg:min-h-0 lg:overflow-hidden">
                 <span className="shrink-0 text-gray-500">Описание:</span>
 
-                <div className="min-h-0 overflow-y-auto break-words pr-2">
+                <div className="min-h-0 flex-1 overflow-y-auto break-words pr-2">
                     <aside className="mb-3 w-full rounded-md border border-blue-100 bg-white/60 p-3 sm:float-right sm:ml-4 sm:w-[min(42%,26rem)] lg:max-h-36 lg:overflow-y-auto">
                         <div className="mb-2 text-gray-500">ГОСТы и СНиПы:</div>
                         {standardsContent}

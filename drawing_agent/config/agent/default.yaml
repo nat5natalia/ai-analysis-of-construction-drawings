@@ -1,5 +1,7 @@
 wait_time: 30
 max_retries: 3
+max_response_tokens: 4000
+max_history_tokens: 4000
 
 system_prompt: |
   Ты — эксперт по анализу технических чертежей.

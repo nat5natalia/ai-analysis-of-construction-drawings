@@ -169,21 +169,42 @@ async def redis_listener():
                 logger.warning(f"Redis connection close failed: {e}")
         await asyncio.sleep(5)
 
-# --- Вспомогательная логика ---
 async def inject_image_data(drawing_meta: dict, all_pages: bool = False, include_images: bool = True) -> dict:
     """
-    Обогащает метаданные изображениями.
-    Если include_images=False, base64 данные не генерируются (используется для списков).
+    Обогащает метаданные изображениями или ссылкой на миниатюру для фронтенда.
     """
     if not include_images:
-        drawing_meta["image"] = None
+        import base64
+        
+        # Ищем путь к файлу миниатюры на диске
+        drawing_id = drawing_meta.get("id")
+        ext = os.path.splitext(drawing_meta.get("filename", ""))[1]
+        thumb_path = os.path.join(UPLOAD_DIR, f"{drawing_id}_thumb.jpg")
+        
+        if os.path.exists(thumb_path):
+            try:
+                with open(thumb_path, "rb") as image_file:
+                    encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                
+                base64_url = encoded_string
+                
+                drawing_meta["image"] = {
+                    "base64": [base64_url],
+                    "total_pages": 1,
+                    "content_type": "image/jpeg"
+                }
+            except Exception as e:
+                logger.warning(f"Failed to read thumbnail base64 for {drawing_id}: {e}")
+                drawing_meta["image"] = None
+        else:
+            drawing_meta["image"] = None
+            
         return drawing_meta
 
     file_path = drawing_meta.get("file_path")
     if file_path and os.path.exists(file_path):
         try:
             loop = asyncio.get_event_loop()
-            # Тяжелая операция: чтение файла и конвертация в base64
             pages = await loop.run_in_executor(executor, file_to_images_base64, file_path)
             if pages:
                 result_pages = pages if all_pages else pages[:1]
@@ -200,7 +221,6 @@ async def inject_image_data(drawing_meta: dict, all_pages: bool = False, include
     else:
         drawing_meta["image"] = None
     return drawing_meta
-
 
 # --- API Эндпоинты ---
 @app.get("/api/drawings", response_model=DrawingsListResponse)

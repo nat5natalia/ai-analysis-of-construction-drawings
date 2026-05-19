@@ -24,6 +24,7 @@ from .tools import (
 )
 from .drawing_cache import DrawingKnowledgeManager
 from .cache import AgentCache
+from .errors import is_async_generator_aclose_error
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +344,22 @@ class DrawingAgent:
                 
                 return final_response
                 
+            except RuntimeError as e:
+                if is_async_generator_aclose_error(e):
+                    logger.warning("Ignoring async generator cleanup error after failed graph invocation: %s", e)
+                    self.stats["errors"] += 1
+                    return {
+                        "success": False,
+                        "answer": None,
+                        "error": "LLM connection failed during analysis"
+                    }
+                logger.error(f"❌ Ошибка выполнения: {e}", exc_info=True)
+                self.stats["errors"] += 1
+                return {
+                    "success": False,
+                    "answer": None,
+                    "error": str(e)
+                }
             except Exception as e:
                 logger.error(f"❌ Ошибка выполнения: {e}", exc_info=True)
                 self.stats["errors"] += 1
@@ -384,7 +401,13 @@ class DrawingAgent:
         
         try:
             if self.saver and hasattr(self.saver, 'aclose'):
-                await self.saver.aclose()
+                try:
+                    await self.saver.aclose()
+                except RuntimeError as e:
+                    if is_async_generator_aclose_error(e):
+                        logger.warning("Ignoring async generator cleanup error while closing saver: %s", e)
+                    else:
+                        raise
             
             if self._db_connection:
                 await self._db_connection.close()

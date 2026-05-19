@@ -9,10 +9,17 @@ import SearchAccordion from './SearchAccordion';
 const Feed = () => {
     const [page, setPage] = useState<number>(1);
     const { data, isError, isSuccess, isLoading, isFetching } =
-        useGetDrawingsQuery({
-            offset: page * 6 - 6,
-            limit: 6,
-        });
+        useGetDrawingsQuery(
+            {
+                offset: page * 6 - 6,
+                limit: 6,
+            },
+            {
+                refetchOnFocus: true,
+                refetchOnMountOrArgChange: true,
+                refetchOnReconnect: true,
+            },
+        );
     const pagesAmount = (total: number | undefined) => {
         if (!total) return 0;
         return Math.ceil(total / 6);

@@ -13,6 +13,7 @@ from app.tools import ALL_TOOLS
 from app.prompts import get_final_system_prompt
 from app.instructor.extractor import run_instructor
 from app.instructor.schemas import DrawingAnalysis
+from app.errors import is_async_generator_aclose_error
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,12 @@ async def agent_node(state: AgentState, cfg: DictConfig) -> AgentState:
             max_tokens=cfg.agent.get('max_response_tokens', 2048)
         )
         return {"messages": [response]}
+    except RuntimeError as e:
+        if is_async_generator_aclose_error(e):
+            logger.warning("LLM cleanup failed after invocation error: %s", e)
+            return {"messages": [AIMessage(content="Ошибка при анализе чертежа. Пожалуйста, повторите запрос.")]}
+        logger.error(f"LLM Invocation Error: {e}")
+        return {"messages": [AIMessage(content="Ошибка при анализе чертежа. Пожалуйста, повторите запрос.")]}
     except Exception as e:
         logger.error(f"LLM Invocation Error: {e}")
         return {"messages": [AIMessage(content="Ошибка при анализе чертежа. Пожалуйста, повторите запрос.")]}

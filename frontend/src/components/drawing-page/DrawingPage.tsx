@@ -10,7 +10,7 @@ import {
 } from '../../store/api/drawings';
 import { ToastContainer } from 'react-toastify';
 import Chat from './Chat';
-import { useState, type SubmitEventHandler } from 'react';
+import { useEffect, useState, type SubmitEventHandler } from 'react';
 import { useDeleteDrawing } from '../../hooks/useDeleteDrawing';
 import useWebsocket from '../../hooks/useWebsocket';
 
@@ -23,11 +23,27 @@ const DrawingPage = () => {
         {
             id: params.id!,
         },
-        { refetchOnMountOrArgChange: true },
+        {
+            refetchOnFocus: true,
+            refetchOnMountOrArgChange: true,
+            refetchOnReconnect: true,
+        },
     );
     const [triggerGetDrawing] = useLazyGetDrawingQuery();
     const [askQuestion] = useAskQuestionMutation();
     useWebsocket(params, refetch);
+
+    useEffect(() => {
+        if (data && data.status !== 'processing') return;
+
+        const interval = window.setInterval(() => {
+            refetch();
+        }, 3000);
+
+        return () => {
+            window.clearInterval(interval);
+        };
+    }, [data?.status, refetch]);
 
     const askHandler: SubmitEventHandler<HTMLFormElement> = async (e) => {
         e.preventDefault();

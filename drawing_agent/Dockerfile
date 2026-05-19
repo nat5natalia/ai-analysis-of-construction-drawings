@@ -22,11 +22,12 @@ RUN pip install --no-cache-dir torch torchvision --index-url ${TORCH_INDEX_URL}
 RUN pip install --no-cache-dir "ultralytics>=8.2.0"
 
 # 5. Установка остальных зависимостей из requirements.txt
-COPY drawing_agent/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 6. КОПИРУЕМ ВСЁ (Код и модели)
-COPY drawing_agent/ .
+COPY . .
+
 # 7. Настройка прав
 RUN mkdir -p logs dataset persistent_storage /app/models && \
     useradd -m appuser && \

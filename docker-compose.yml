@@ -25,9 +25,8 @@ services:
 
   drawing_agent:
     build:
-      # МЕНЯЕМ КОНТЕКСТ НА ПАПКУ АГЕНТА
-      context: ./drawing_agent
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: drawing_agent/Dockerfile
     container_name: drawing_agent
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}

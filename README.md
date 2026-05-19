@@ -72,6 +72,8 @@ drawing_agent (drawing_agent:8000)
 Copy-Item .env.example .env
 ```
 
+При Docker-запуске Compose читает этот файл как источник переменных для build args, device-настроек и Docker secret. Значение `OPENAI_API_KEY` не передаётся в `drawing_agent` обычной environment-переменной: оно монтируется как secret-файл `/run/secrets/openai_api_key`, а приложение читает путь из `OPENAI_API_KEY_FILE`.
+
 Минимальный вариант для CPU:
 
 ```env
@@ -84,12 +86,15 @@ TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 Важные переменные:
 
 - `OPENAI_API_KEY` - обязательный ключ для обращения к LLM.
+- `OPENAI_API_KEY_FILE` - внутренний путь к Docker secret внутри контейнера `drawing_agent`; вручную в `.env` обычно не задаётся.
 - `DATABASE_URL` - адрес PostgreSQL для checkpoint-хранилища LangGraph. В Docker Compose по умолчанию используется `postgresql://postgres:postgres@postgres:5432/langgraph_db`.
 - `AGENT_DEVICE` - устройство для `drawing_agent`: `cpu`, `cuda` или `auto`.
 - `TORCH_INDEX_URL` - индекс PyTorch при сборке образа `drawing_agent`.
 - `CELERY_CONCURRENCY` - число процессов Celery. Если не задано, используется `1`.
 
 В `docker-compose.yml` Redis, MongoDB, PostgreSQL, `AGENT_URL`, `DATASET_PATH` и внутренние адреса сервисов уже заданы. Обычно их не нужно прописывать в `.env` для Docker-запуска.
+
+Не используйте `docker compose config` для публикации логов или скриншотов без фильтрации: команда безопаснее после перехода на secret, но всё равно раскрывает структуру секретов и локальные пути.
 
 ## Запуск на CPU
 
@@ -109,6 +114,8 @@ TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 ```powershell
 docker compose up --build -d
 ```
+
+После старта Compose поднимает Redis, MongoDB, PostgreSQL, `drawing_agent`, `celery-worker`, `backend` и `frontend`. Backend ждёт готовности агента, Redis и MongoDB, а worker дополнительно ждёт PostgreSQL.
 
 3. Откройте приложение:
 
@@ -203,6 +210,8 @@ npm run dev
 Vite проксирует `/api` и `/ws` на `http://127.0.0.1:8000`, поэтому локально backend должен быть доступен на порту `8000`.
 
 Backend при уже поднятых Redis, MongoDB и агенте. В примере backend запускается на `8001`, потому что локальный `drawing_agent` по умолчанию занимает `8000`:
+
+Если вы хотите запускать frontend через `npm run dev` без изменения `frontend/vite.config.ts`, backend должен слушать `8000`. Если одновременно локально запущен `drawing_agent` на `8000`, разведите порты и временно поменяйте Vite proxy на порт backend.
 
 ```powershell
 cd backend

@@ -12,8 +12,7 @@ RUN pip install --no-cache-dir --upgrade pip
 
 # 3. Установка чистого CPU PyTorch (Вот здесь магия скорости)
 # ДЛЯ ЛОКАЛЬНОГО CPU ЗАПУСКА:
-ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir torch torchvision --index-url ${TORCH_INDEX_URL}
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 # (Когда будете деплоить на GPU-сервер, просто замените строку выше на:
 # RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121)
@@ -22,11 +21,11 @@ RUN pip install --no-cache-dir torch torchvision --index-url ${TORCH_INDEX_URL}
 RUN pip install --no-cache-dir "ultralytics>=8.2.0"
 
 # 5. Установка остальных зависимостей из requirements.txt
-COPY requirements.txt .
+COPY drawing_agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 6. КОПИРУЕМ ВСЁ (Код и модели)
-COPY . .
+COPY drawing_agent/ .
 
 # 7. Настройка прав
 RUN mkdir -p logs dataset persistent_storage /app/models && \

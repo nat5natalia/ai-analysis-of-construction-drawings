@@ -1,21 +1,19 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type {
     IAskResponse,
-    IDescriptionResponse,
     IDrawingResponse,
     IDrawingsResponse,
-    IGetStatus,
     ISearchResponse,
-    ISimilarResponse,
     IUploadResponse,
 } from '../../types/api';
+import { API_BASE_URL } from '../../config/api';
 
 export const drawingsApi = createApi({
     reducerPath: 'drawingsApi',
     baseQuery: fetchBaseQuery({
-        baseUrl: 'http://127.0.0.1:8000/api',
+        baseUrl: API_BASE_URL,
     }),
-    tagTypes: ['Items', 'Search', 'Similar'],
+    tagTypes: ['Items', 'Search'],
     endpoints: (builder) => ({
         getDrawings: builder.query<
             IDrawingsResponse,
@@ -44,28 +42,6 @@ export const drawingsApi = createApi({
                           { type: 'Items', id: 'LIST' },
                       ]
                     : [{ type: 'Items', id: 'LIST' }],
-        }),
-
-        similarDrawings: builder.query<
-            ISimilarResponse,
-            {
-                id: string;
-                limit: number;
-            }
-        >({
-            query: (params) => {
-                return `similar/${params.id}?limit=${params.limit}`;
-            },
-            providesTags: (result) =>
-                result
-                    ? [
-                          ...result.similar.map((item) => ({
-                              type: 'Similar' as const,
-                              id: item.id,
-                          })),
-                          { type: 'Similar', id: 'LIST' },
-                      ]
-                    : [{ type: 'Similar', id: 'LIST' }],
         }),
 
         searchDrawings: builder.query<
@@ -104,11 +80,6 @@ export const drawingsApi = createApi({
             providesTags: (_result, _error, { id }) => [{ type: 'Items', id }],
         }),
 
-        getDescription: builder.query<IDescriptionResponse, { id: string }>({
-            query: (params) => `describe/${params.id}`,
-            providesTags: (_result, _error, { id }) => [{ type: 'Items', id }],
-        }),
-
         deleteDrawing: builder.mutation<{ message: string }, { id: string }>({
             query: ({ id }) => ({
                 url: `drawings/${id}`,
@@ -139,11 +110,6 @@ export const drawingsApi = createApi({
                 { type: 'Items', id },
             ],
         }),
-
-        getAskStatus: builder.query<IGetStatus, { id: string }>({
-            query: ({ id }) => `ask/status/${id}`,
-            keepUnusedDataFor: 0,
-        }),
     }),
 });
 
@@ -154,8 +120,5 @@ export const {
     useGetDrawingQuery,
     useLazyGetDrawingQuery,
     useAskQuestionMutation,
-    useGetDescriptionQuery,
     useUploadDrawingMutation,
-    useSimilarDrawingsQuery,
-    useLazyGetAskStatusQuery,
 } = drawingsApi;

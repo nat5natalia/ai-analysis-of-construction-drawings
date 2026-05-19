@@ -1,45 +1,20 @@
-import type {
-    BaseQueryFn,
-    FetchArgs,
-    FetchBaseQueryError,
-    FetchBaseQueryMeta,
-    QueryActionCreatorResult,
-    QueryDefinition,
-} from '@reduxjs/toolkit/query';
 import { useEffect, useRef } from 'react';
-import type { IDrawingResponse } from '../types/api';
 import { toast } from 'react-toastify';
+import { buildWsUrl } from '../config/api';
 
 const useWebsocket = (
     params: Readonly<Partial<{ id: string }>>,
-    triggerGetDrawing: (
-        arg: {
-            id: string;
-        },
-        preferCacheValue?: boolean | undefined,
-    ) => QueryActionCreatorResult<
-        QueryDefinition<
-            {
-                id: string;
-            },
-            BaseQueryFn<
-                string | FetchArgs,
-                unknown,
-                FetchBaseQueryError,
-                object,
-                FetchBaseQueryMeta
-            >,
-            'Items' | 'Search' | 'Similar',
-            IDrawingResponse,
-            'drawingsApi',
-            unknown
-        >
-    >,
+    refetchDrawing: () => Promise<unknown> | unknown,
 ) => {
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectRef = useRef<boolean>(true);
     const reconnectTimeoutRef = useRef<number | null>(null);
     const currentWsRef = useRef<WebSocket | null>(null);
+    const refetchDrawingRef = useRef(refetchDrawing);
+
+    useEffect(() => {
+        refetchDrawingRef.current = refetchDrawing;
+    }, [refetchDrawing]);
 
     const clearReconnectTimeout = () => {
         if (reconnectTimeoutRef.current) {
@@ -49,7 +24,7 @@ const useWebsocket = (
     };
 
     const connect = () => {
-        if (!reconnectRef.current) return;
+        if (!reconnectRef.current || !params.id) return;
 
         clearReconnectTimeout();
 
@@ -57,12 +32,14 @@ const useWebsocket = (
             wsRef.current.close();
             wsRef.current = null;
         }
-        const ws = new WebSocket(`ws://localhost:8000/ws/${params.id}`);
+
+        const ws = new WebSocket(buildWsUrl(`/ws/${params.id}`));
         wsRef.current = ws;
         currentWsRef.current = ws;
 
-        ws.onopen = () => {
+        ws.onopen = async () => {
             console.log('WS connected');
+            await refetchDrawingRef.current();
         };
 
         ws.onerror = (e) => {
@@ -92,13 +69,16 @@ const useWebsocket = (
                 return;
             }
 
-            if (data.status === 'completed') {
-                await triggerGetDrawing({ id: params.id! });
+            if (data.drawing_id && data.drawing_id !== params.id) {
+                return;
+            }
+
+            if (data.event || data.status) {
+                await refetchDrawingRef.current();
             }
 
             if (data.status === 'failed') {
                 toast.error('Возникла ошибка обработки чертежа');
-                await triggerGetDrawing({ id: params.id! });
             }
         };
     };

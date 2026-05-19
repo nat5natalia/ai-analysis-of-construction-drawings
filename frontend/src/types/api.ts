@@ -18,21 +18,9 @@ export interface IDrawingsResponse {
             id: string;
             filename: string;
             image?: ImageData | null;
-            status: 'completed' | 'processing';
+            status: 'completed' | 'processing' | 'failed';
             uploaded_at: string;
             has_description: boolean;
-        },
-    ];
-}
-
-export interface ISimilarResponse {
-    source_id: string;
-    similar: [
-        {
-            id: string;
-            filename: string;
-            description: string;
-            similarity: number;
         },
     ];
 }
@@ -41,11 +29,12 @@ export interface IDrawingResponse {
     id: string;
     filename: string;
     image?: ImageData | null;
-    status: 'completed' | 'processing';
+    status: 'completed' | 'processing' | 'failed';
     uploaded_at: string;
     description: string;
     has_embedding: true;
     messages?: IMessage[];
+    standards?: string[];
 }
 
 export interface IUploadResponse {
@@ -53,13 +42,6 @@ export interface IUploadResponse {
     filename: string;
     status: 'uploaded' | 'processed';
     uploaded_at: string;
-}
-
-export interface IDescriptionResponse {
-    id: string;
-    description: string;
-    generated_at: string;
-    cached: boolean;
 }
 
 export interface ISearchResponse {
@@ -81,13 +63,3 @@ export interface IAskResponse {
     answered_at: string;
 }
 
-interface IGetStatusCompleted {
-    status: 'completed';
-    answer: string;
-}
-
-interface IGetStatusProcessing {
-    status: 'processing';
-}
-
-export type IGetStatus = IGetStatusCompleted | IGetStatusProcessing;

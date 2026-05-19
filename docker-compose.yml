@@ -23,7 +23,6 @@ services:
 
   drawing_agent:
     build:
-      # МЕНЯЕМ КОНТЕКСТ НА ПАПКУ АГЕНТА
       context: ./drawing_agent
       dockerfile: Dockerfile
       args:
@@ -42,7 +41,6 @@ services:
     volumes:
       - ./dataset:/app/dataset
       - ./persistent_storage:/app/data
-      # Монтируем модели из папки внутри drawing_agent
       - ./drawing_agent/models:/app/models
     restart: unless-stopped
     healthcheck:

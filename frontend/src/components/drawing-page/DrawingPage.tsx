@@ -19,7 +19,7 @@ const DrawingPage = () => {
     const params = useParams<{ id: string }>();
     const [question, setQuestion] = useState<string>('');
     const { isLoading, handleDelete } = useDeleteDrawing(params.id!, navigate);
-    const { data, isError } = useGetDrawingQuery(
+    const { data, isError, refetch } = useGetDrawingQuery(
         {
             id: params.id!,
         },
@@ -27,7 +27,7 @@ const DrawingPage = () => {
     );
     const [triggerGetDrawing] = useLazyGetDrawingQuery();
     const [askQuestion] = useAskQuestionMutation();
-    useWebsocket(params, triggerGetDrawing);
+    useWebsocket(params, refetch);
 
     const askHandler: SubmitEventHandler<HTMLFormElement> = async (e) => {
         e.preventDefault();

@@ -7,6 +7,7 @@ import os  # Добавлено для проверки путей
 from io import BytesIO
 from typing import List, Dict, Any, Optional
 from ultralytics import YOLO
+from .device import resolve_device
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class YOLODetector:
         :param model_path: Путь к весам YOLO внутри Docker (/app/models/best.pt)
         """
         self.model_path = model_path
+        self.device = resolve_device()
         self.model = None
         self._load_model()
 
@@ -69,7 +71,13 @@ class YOLODetector:
             logger.error("Инференс невозможен: модель не загружена")
             return []
 
-        results = self.model.predict(image, conf=conf_threshold, verbose=False)
+        results = self.model.predict(
+            image,
+            conf=conf_threshold,
+            verbose=False,
+            device=self.device,
+            half=self.device == "cuda",
+        )
         detected = []
 
         for result in results:

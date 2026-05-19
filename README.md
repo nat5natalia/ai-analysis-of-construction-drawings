@@ -5,6 +5,7 @@
 ## Оглавление
 
 - [Состав проекта](#состав-проекта)
+- [Технологический стек](#технологический-стек)
 - [Архитектура](#архитектура)
 - [Требования](#требования)
 - [Переменные окружения](#переменные-окружения)
@@ -25,6 +26,56 @@
 - `dataset` - локальная папка с загруженными PDF и изображениями.
 - `persistent_storage` - постоянное хранилище FAISS-индекса, метаданных и кеша агента.
 - `drawing_agent/models` - локальные модели EasyOCR, Sentence Transformers и YOLO (`best.pt`).
+
+## Технологический стек
+
+### Frontend
+
+- React 19, TypeScript, Vite.
+- Redux Toolkit и React Redux для клиентского состояния и API-слоя.
+- Tailwind CSS для стилизации интерфейса.
+- React Router для маршрутизации.
+- React Dropzone для загрузки файлов.
+- React Markdown, Remark GFM и Rehype Sanitize для безопасного отображения markdown-ответов.
+- Framer Motion и React Icons для UI-анимаций и иконок.
+- Nginx для отдачи собранного frontend-приложения в Docker.
+
+### Backend и API
+
+- Python 3.12.
+- FastAPI и Uvicorn для HTTP API и WebSocket.
+- Motor/PyMongo для работы с MongoDB.
+- Celery для постановки и выполнения фоновых задач.
+- Redis как брокер Celery и канал Pub/Sub для обновлений.
+- HTTPX/Requests для межсервисного взаимодействия.
+- PyMuPDF и Pillow для обработки PDF и изображений.
+
+### AI-agent и анализ чертежей
+
+- FastAPI-сервис `drawing_agent` как отдельный контейнер.
+- LangChain, LangGraph и OpenAI-совместимый API для LLM-логики.
+- LangGraph checkpoint storage на PostgreSQL.
+- PyTorch и Ultralytics YOLO для компьютерного зрения.
+- EasyOCR для распознавания текста на чертежах.
+- Sentence Transformers и FAISS для векторного поиска и RAG.
+- NumPy, scikit-learn и scikit-image для обработки данных и изображений.
+- Hydra/OmegaConf для конфигурации агента.
+- ClearML для мониторинга экспериментов и запусков.
+
+### Хранение данных и инфраструктура
+
+- MongoDB для метаданных чертежей, статусов обработки и истории сообщений.
+- PostgreSQL для checkpoint-хранилища LangGraph.
+- Redis для очередей задач и событий.
+- Docker и Docker Compose для контейнеризации всего стека.
+- Отдельный `docker-compose.gpu.yml` для запуска агента с NVIDIA GPU/CUDA.
+- Bind mounts и Docker volumes для хранения датасета, моделей, FAISS-индекса и кеша.
+
+### Тестирование и качество
+
+- Pytest и pytest-asyncio для тестов Python-сервисов.
+- Respx для мокирования HTTP-вызовов в тестах.
+- ESLint и TypeScript compiler для проверки frontend-кода.
 
 ## Архитектура
 

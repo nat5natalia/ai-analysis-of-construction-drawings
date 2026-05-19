@@ -82,7 +82,7 @@ def validate_path(path: str) -> str:
     sanitized_path = os.path.abspath(os.path.realpath(path))
     allowed_root = os.path.abspath(os.path.realpath(data_dir))
 
-    if not sanitized_path.startswith(allowed_root):
+    if os.path.commonpath([sanitized_path, allowed_root]) != allowed_root:
         logger.warning(f"Access denied: {sanitized_path} is outside {allowed_root}")
         raise HTTPException(status_code=400, detail="Path outside allowed dataset directory")
 

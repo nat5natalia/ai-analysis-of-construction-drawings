@@ -28,11 +28,14 @@ services:
       # МЕНЯЕМ КОНТЕКСТ НА ПАПКУ АГЕНТА
       context: ./drawing_agent
       dockerfile: Dockerfile
+      args:
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     container_name: drawing_agent
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/langgraph_db
+      - AGENT_DEVICE=${AGENT_DEVICE:-auto}
       - TRANSFORMERS_OFFLINE=1
       - HF_DATASETS_OFFLINE=1
       - HF_HOME=/app/models/transformers
@@ -54,7 +57,7 @@ services:
       context: .
       dockerfile: celery_worker/Dockerfile
     container_name: drawing_worker
-    command: celery -A worker worker --loglevel=info --concurrency=1
+    command: celery -A worker worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-1}
     environment:
       - REDIS_URL=redis://redis:6379/0
       - MONGO_URL=mongodb://mongodb:27017

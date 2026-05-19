@@ -12,7 +12,8 @@ RUN pip install --no-cache-dir --upgrade pip
 
 # 3. Установка чистого CPU PyTorch (Вот здесь магия скорости)
 # ДЛЯ ЛОКАЛЬНОГО CPU ЗАПУСКА:
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch torchvision --index-url ${TORCH_INDEX_URL}
 
 # (Когда будете деплоить на GPU-сервер, просто замените строку выше на:
 # RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121)
